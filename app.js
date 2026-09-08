@@ -1,8 +1,7 @@
 // version_sheets_drive/app.js
 // Conexión directa a Google Sheets y Google Drive vía Google Apps Script
 
-// COLOCA AQUÍ LA URL DE TU APLICACIÓN WEB DE GOOGLE APPS SCRIPT (TERMINA EN /exec)
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz_TU_SCRIPT_ID/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxlejf90BKS-0hUI9PuujVBf40sb02rIRQIaFyVRElMrkpzlRBv2tbPRV-XwhpcO6-P/exec";
 
 // ==========================================
 // MÓDULO: DASHBOARD (index.html)
@@ -370,8 +369,22 @@ async function enviarPeticionAppsScript(data) {
     console.warn("Recuerda configurar la constante SCRIPT_URL con el enlace de tu Web App de Google Apps Script.");
   }
 
+  // Las acciones de lectura las enviamos por GET para máxima compatibilidad con navegadores y GitHub Pages
+  const accionesLectura = ["obtenerMetricas", "obtenerProcesosActivos", "obtenerProveedores", "obtenerProcesosConSaldo"];
+  
+  if (accionesLectura.includes(data.accion)) {
+    const params = new URLSearchParams(data);
+    const res = await fetch(`${SCRIPT_URL}?${params.toString()}`, {
+      method: "GET",
+      redirect: "follow"
+    });
+    return await res.json();
+  }
+
+  // Para envíos y subida de archivos (POST)
   const res = await fetch(SCRIPT_URL, {
     method: "POST",
+    redirect: "follow",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(data)
   });
