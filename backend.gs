@@ -1,0 +1,461 @@
+/**
+ * backend.gs (Versión 100% Google Sheets + Google Drive)
+ * 
+ * Instrucciones:
+ * 1. Pega este código en tu proyecto de Google Apps Script vinculado a tu Google Sheet (Extensiones > Apps Script).
+ * 2. Implementar > Nueva implementación > Tipo: "Aplicación web".
+ * 3. Ejecutar como: "Yo" (tu cuenta).
+ * 4. Quién tiene acceso: "Cualquier persona" (para permitir peticiones desde tu app web).
+ * 5. Copia la URL de la aplicación web generada (termina en /exec) y pégala en `version_sheets_drive/app.js` en la variable SCRIPT_URL.
+ */
+
+function getSpreadsheet() {
+  // Intenta tomar el Sheet activo directamente, o mediante ID si se especifica
+  try {
+    return SpreadsheetApp.getActiveSpreadsheet();
+  } catch (e) {
+    // Si no está vinculado a un Sheet directamente, coloca aquí tu ID
+    return SpreadsheetApp.openById("1YMUl2NumIZ-HGbuJP-l9eYC64wwG5ZJe0aAOvRQcCFY");
+  }
+}
+
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return respuestaJSON({ success: false, error: "No se recibieron datos POST" }, 400);
+    }
+
+    const data = JSON.parse(e.postData.contents);
+    const accion = data.accion;
+
+    if (accion === "obtenerMetricas") {
+      return respuestaJSON(obtenerMetricasDashboard());
+    }
+
+    if (accion === "obtenerProveedores") {
+      return respuestaJSON(obtenerListadoProveedores());
+    }
+
+    if (accion === "obtenerProcesosActivos") {
+      return respuestaJSON(obtenerListadoProcesosActivos());
+    }
+
+    if (accion === "obtenerProcesosConSaldo") {
+      return respuestaJSON(obtenerProcesosConSaldo());
+    }
+
+    if (accion === "registrarProveedor") {
+      return respuestaJSON(procesarAltaProveedor(data));
+    }
+
+    if (accion === "registrarProceso") {
+      return respuestaJSON(procesarNuevoProceso(data));
+    }
+
+    if (accion === "actualizarProceso") {
+      return respuestaJSON(procesarActualizacionProceso(data));
+    }
+
+    if (accion === "registrarPago") {
+      return respuestaJSON(procesarNuevoPago(data));
+    }
+
+    if (accion === "subirCFDI") {
+      return respuestaJSON(procesarSubidaCFDI(data));
+    }
+
+    return respuestaJSON({ success: false, error: "Acción no reconocida: " + accion }, 400);
+
+  } catch (error) {
+    return respuestaJSON({ success: false, error: error.toString() }, 500);
+  }
+}
+
+function doGet(e) {
+  const accion = e && e.parameter ? e.parameter.accion : "";
+  if (accion === "obtenerMetricas") return respuestaJSON(obtenerMetricasDashboard());
+  if (accion === "obtenerProveedores") return respuestaJSON(obtenerListadoProveedores());
+  if (accion === "obtenerProcesosActivos") return respuestaJSON(obtenerListadoProcesosActivos());
+  if (accion === "obtenerProcesosConSaldo") return respuestaJSON(obtenerProcesosConSaldo());
+  
+  return respuestaJSON({ success: true, message: "API Google Sheets / Drive activa correctamente." });
+}
+
+// ---------------------------------------------------
+// 1. OBTENER MÉTRICAS Y TABLA DEL DASHBOARD
+// ---------------------------------------------------
+function obtenerMetricasDashboard() {
+  const ss = getSpreadsheet();
+  const sheetProc = ss.getSheetByName("Procesos");
+  const sheetPagos = ss.getSheetByName("Pagos");
+  const sheetProv = ss.getSheetByName("Proveedores");
+
+  const dataProc = sheetProc ? sheetProc.getDataRange().getValues() : [];
+  const dataPagos = sheetPagos ? sheetPagos.getDataRange().getValues() : [];
+  const dataProv = sheetProv ? sheetProv.getDataRange().getValues() : [];
+
+  let totalCompras = 0;
+  let totalPagado = 0;
+  let saldoPendiente = 0;
+  let complementosFaltantes = 0;
+
+  for (let i = 1; i < dataProc.length; i++) {
+    let monto = parseFloat(dataProc[i][4]) || 0;
+    let saldo = parseFloat(dataProc[i][5]) || 0;
+    let estatus = (dataProc[i][8] || "").toString().toUpperCase();
+
+    if (estatus !== "CERRADO") {
+      totalCompras += monto;
+      saldoPendiente += saldo;
+    }
+  }
+
+  for (let j = 1; j < dataPagos.length; j++) {
+    let abono = parseFloat(dataPagos[j][3]) || 0;
+    let estatusCFDI = (dataPagos[j][6] || "").toString();
+
+    totalPagado += abono;
+    if (estatusCFDI === "PENDIENTE_COMPLEMENTO") {
+      complementosFaltantes++;
+    }
+  }
+
+  return {
+    success: true,
+    totalCompras: totalCompras,
+    totalPagado: totalPagado,
+    saldoPendiente: saldoPendiente,
+    complementosFaltantes: complementosFaltantes,
+    totalProveedores: Math.max(0, dataProv.length - 1)
+  };
+}
+
+// ---------------------------------------------------
+// 2. LISTADOS PARA LAS TABLAS Y SELECTS
+// ---------------------------------------------------
+function obtenerListadoProveedores() {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName("Proveedores");
+  if (!sheet) return { success: true, proveedores: [] };
+
+  const values = sheet.getDataRange().getValues();
+  const proveedores = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0] && !row[2]) continue;
+    proveedores.push({
+      id: row[0],
+      razon_social: row[1],
+      rfc: row[2],
+      regimen_fiscal: row[3],
+      correo: row[4],
+      telefono: row[5],
+      direccion: row[6],
+      carpeta_url: row[7],
+      estatus: row[8]
+    });
+  }
+
+  return { success: true, proveedores: proveedores };
+}
+
+function obtenerListadoProcesosActivos() {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName("Procesos");
+  if (!sheet) return { success: true, procesos: [] };
+
+  const values = sheet.getDataRange().getValues();
+  const procesos = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const estatus = (row[8] || "").toString().toUpperCase();
+    if (estatus === "CERRADO" || (!row[0] && !row[3])) continue;
+
+    procesos.push({
+      id: row[0],
+      proveedor_id: row[1],
+      razon_social: row[2],
+      concepto: row[3],
+      monto_acordado: parseFloat(row[4]) || 0,
+      saldo_pendiente: parseFloat(row[5]) || 0,
+      cotizacion_url: row[6],
+      contrato_url: row[7],
+      estatus: row[8]
+    });
+  }
+
+  return { success: true, procesos: procesos };
+}
+
+function obtenerProcesosConSaldo() {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName("Procesos");
+  if (!sheet) return { success: true, procesos: [] };
+
+  const values = sheet.getDataRange().getValues();
+  const procesos = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const saldo = parseFloat(row[5]) || 0;
+    const estatus = (row[8] || "").toString().toUpperCase();
+    if (saldo > 0 && estatus !== "CERRADO") {
+      procesos.push({
+        id: row[0],
+        concepto: row[3],
+        saldo_pendiente: saldo
+      });
+    }
+  }
+
+  return { success: true, procesos: procesos };
+}
+
+// ---------------------------------------------------
+// 3. REGISTRAR PROVEEDOR Y CREAR CARPETA EN DRIVE
+// ---------------------------------------------------
+function procesarAltaProveedor(data) {
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName("Proveedores");
+  
+  // Buscar o crear carpeta raíz de expedientes
+  let carpetaRaiz;
+  let iterador = DriveApp.getFoldersByName("EXPEDIENTES_PROVEEDORES");
+  if (iterador.hasNext()) {
+    carpetaRaiz = iterador.next();
+  } else {
+    carpetaRaiz = DriveApp.createFolder("EXPEDIENTES_PROVEEDORES");
+  }
+
+  // Crear subcarpeta para el proveedor
+  let nombreCarpeta = (data.rfc || "").toUpperCase().trim() + " - " + (data.razonSocial || "").toUpperCase().trim();
+  let carpetaProveedor = carpetaRaiz.createFolder(nombreCarpeta);
+
+  // Guardar archivo CSF si existe
+  let urlCSF = "";
+  if (data.csfFile) {
+    urlCSF = guardarArchivoDriveBlob(carpetaProveedor, data.csfFile, "1_CSF_" + data.rfc);
+  }
+
+  // Guardar comprobante si existe
+  if (data.comprobanteFile) {
+    guardarArchivoDriveBlob(carpetaProveedor, data.comprobanteFile, "2_Comprobante_Domicilio_" + data.rfc);
+  }
+
+  let idProveedor = "PROV-" + Math.floor(1000 + Math.random() * 9000);
+
+  sheet.appendRow([
+    idProveedor,
+    (data.razonSocial || "").toUpperCase().trim(),
+    (data.rfc || "").toUpperCase().trim(),
+    data.regimenFiscal || "",
+    (data.correo || "").trim(),
+    (data.telefono || "").trim(),
+    (data.direccion || "").trim(),
+    carpetaProveedor.getUrl(),
+    "ACTIVO",
+    new Date()
+  ]);
+
+  return { success: true, idProveedor: idProveedor, carpetaUrl: carpetaProveedor.getUrl() };
+}
+
+// ---------------------------------------------------
+// 4. APERTURA DE PROCESO Y SUB-CARPETA EN DRIVE
+// ---------------------------------------------------
+function procesarNuevoProceso(data) {
+  const ss = getSpreadsheet();
+  const sheetProc = ss.getSheetByName("Procesos");
+  const sheetProv = ss.getSheetByName("Proveedores");
+  
+  const dataProv = sheetProv ? sheetProv.getDataRange().getValues() : [];
+  let urlCarpetaProv = "";
+  let razonSocial = "";
+
+  for (let i = 1; i < dataProv.length; i++) {
+    if (dataProv[i][2] === data.proveedorId || dataProv[i][0] === data.proveedorId) {
+      razonSocial = dataProv[i][1];
+      urlCarpetaProv = dataProv[i][7];
+      break;
+    }
+  }
+
+  let idProceso = "PR-" + Math.floor(1000 + Math.random() * 9000);
+  let urlCotizacion = "";
+
+  // Crear subcarpeta del proceso dentro de la carpeta del proveedor en Drive
+  if (urlCarpetaProv) {
+    try {
+      let matches = urlCarpetaProv.match(/[-\w]{25,}/);
+      if (matches) {
+        let idCarpeta = matches[0];
+        let carpetaProv = DriveApp.getFolderById(idCarpeta);
+        let subcarpetaProc = carpetaProv.createFolder(idProceso + " - " + (data.concepto || "").substring(0, 30));
+
+        if (data.cotizacionFile) {
+          urlCotizacion = guardarArchivoDriveBlob(subcarpetaProc, data.cotizacionFile, "1_Cotizacion_" + idProceso);
+        }
+      }
+    } catch (errDrive) {
+      Logger.log("Error creando subcarpeta Drive: " + errDrive);
+    }
+  }
+
+  let monto = parseFloat(data.monto) || 0;
+
+  sheetProc.appendRow([
+    idProceso,
+    data.proveedorId,
+    razonSocial,
+    data.concepto,
+    monto,
+    monto, // Saldo inicial
+    urlCotizacion,
+    "",    // Contrato URL
+    "EN_COTIZACION",
+    new Date()
+  ]);
+
+  return { success: true, idProceso: idProceso };
+}
+
+// ---------------------------------------------------
+// 5. ACTUALIZAR PROCESO (CONTRATO / ESTATUS)
+// ---------------------------------------------------
+function procesarActualizacionProceso(data) {
+  const ss = getSpreadsheet();
+  const sheetProc = ss.getSheetByName("Procesos");
+  const dataProc = sheetProc.getDataRange().getValues();
+
+  let fila = -1;
+  for (let i = 1; i < dataProc.length; i++) {
+    if (dataProc[i][0] === data.procesoId) {
+      fila = i + 1;
+      break;
+    }
+  }
+
+  if (fila === -1) throw new Error("Proceso no encontrado: " + data.procesoId);
+
+  if (data.estatus) {
+    sheetProc.getRange(fila, 9).setValue(data.estatus);
+  }
+
+  if (data.contratoFile) {
+    let urlContrato = guardarArchivoDriveEnRaiz(data.contratoFile, "Contrato_" + data.procesoId);
+    sheetProc.getRange(fila, 8).setValue(urlContrato);
+  }
+
+  return { success: true };
+}
+
+// ---------------------------------------------------
+// 6. REGISTRAR PAGO
+// ---------------------------------------------------
+function procesarNuevoPago(data) {
+  const ss = getSpreadsheet();
+  const sheetProc = ss.getSheetByName("Procesos");
+  const sheetPagos = ss.getSheetByName("Pagos");
+  const dataProc = sheetProc.getDataRange().getValues();
+
+  let filaProceso = -1;
+  let saldoActual = 0;
+
+  for (let i = 1; i < dataProc.length; i++) {
+    if (dataProc[i][0] === data.procesoId) {
+      filaProceso = i + 1;
+      saldoActual = parseFloat(dataProc[i][5]) || 0;
+      break;
+    }
+  }
+
+  let montoAbono = parseFloat(data.montoAbonado) || 0;
+  let idPago = "PAG-" + Math.floor(10000 + Math.random() * 90000);
+
+  let urlComprobante = "";
+  if (data.comprobanteFile) {
+    urlComprobante = guardarArchivoDriveEnRaiz(data.comprobanteFile, "FichaPago_" + idPago);
+  }
+
+  sheetPagos.appendRow([
+    idPago,
+    data.procesoId,
+    "",
+    montoAbono,
+    data.fechaTransferencia,
+    urlComprobante,
+    "PENDIENTE_COMPLEMENTO",
+    "",
+    "",
+    new Date()
+  ]);
+
+  if (filaProceso > -1) {
+    let nuevoSaldo = Math.max(0, saldoActual - montoAbono);
+    sheetProc.getRange(filaProceso, 6).setValue(nuevoSaldo);
+    if (nuevoSaldo <= 0) {
+      sheetProc.getRange(filaProceso, 9).setValue("PAGADO_TOTAL");
+    }
+  }
+
+  return { success: true, idPago: idPago };
+}
+
+// ---------------------------------------------------
+// 7. SUBIDA DE CFDI (PORTAL)
+// ---------------------------------------------------
+function procesarSubidaCFDI(data) {
+  const ss = getSpreadsheet();
+  const sheetPagos = ss.getSheetByName("Pagos");
+  const dataPagos = sheetPagos.getDataRange().getValues();
+
+  let filaPago = -1;
+  for (let i = 1; i < dataPagos.length; i++) {
+    if (dataPagos[i][0] === data.pagoId) {
+      filaPago = i + 1;
+      break;
+    }
+  }
+
+  if (filaPago === -1) throw new Error("Pago no encontrado: " + data.pagoId);
+
+  let urlXML = "";
+  if (data.xmlFile) {
+    urlXML = guardarArchivoDriveEnRaiz(data.xmlFile, "CFDI_" + data.pagoId);
+  }
+
+  sheetPagos.getRange(filaPago, 7).setValue("COMPLETO");
+  sheetPagos.getRange(filaPago, 8).setValue(urlXML);
+
+  return { success: true };
+}
+
+// ---------------------------------------------------
+// AUXILIARES DRIVE & JSON
+// ---------------------------------------------------
+function guardarArchivoDriveBlob(carpetaTarget, fileObj, nombreDeseado) {
+  let bytes = Utilities.base64Decode(fileObj.data);
+  let ext = fileObj.name.indexOf('.') !== -1 ? fileObj.name.substring(fileObj.name.lastIndexOf('.')) : '';
+  let blob = Utilities.newBlob(bytes, fileObj.mimeType, nombreDeseado + ext);
+  let archivo = carpetaTarget.createFile(blob);
+  archivo.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return archivo.getUrl();
+}
+
+function guardarArchivoDriveEnRaiz(fileObj, nombreDeseado) {
+  let iterador = DriveApp.getFoldersByName("EXPEDIENTES_PROVEEDORES");
+  let carpeta = iterador.hasNext() ? iterador.next() : DriveApp.createFolder("EXPEDIENTES_PROVEEDORES");
+  return guardarArchivoDriveBlob(carpeta, fileObj, nombreDeseado);
+}
+
+function respuestaJSON(obj, code) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doOptions(e) {
+  return ContentService.createTextOutput("")
+    .setMimeType(ContentService.MimeType.JSON);
+}

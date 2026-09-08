@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apertura de Proceso</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="d-flex">
+    <!-- Sidebar -->
+    <aside class="bg-white border-end vh-100 position-fixed" style="width: 250px; z-index: 1000;">
+      <div class="p-4 border-bottom d-flex align-items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16l-3 -2l-2 2l-2 -2l-2 2l-2 -2l-3 2"></path><path d="M14 8h-2.5a1.5 1.5 0 0 0 0 3h1a1.5 1.5 0 0 1 0 3h-2.5m2 0v1.5m0 -9v1.5"></path></svg>
+        <span class="fw-bold text-primary">SaaS Proveedores</span>
+      </div>
+      <nav class="p-3">
+        <a href="index.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6v8h-6z"></path><path d="M4 16h6v4h-6z"></path><path d="M14 12h6v8h-6z"></path><path d="M14 4h6v4h-6z"></path></svg>
+          Dashboard
+        </a>
+        <a href="proveedores.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"></path><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"></path></svg>
+          Proveedores
+        </a>
+        <a href="procesos.html" class="nav-link active d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"></path><path d="M9 17h6"></path><path d="M9 13h6"></path></svg>
+          Procesos
+        </a>
+        <a href="pagos.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5m0 3a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z"></path><path d="M3 10l18 0"></path><path d="M7 15l.01 0"></path><path d="M11 15l2 0"></path></svg>
+          Pagos
+        </a>
+      </nav>
+    </aside>
+
+    <main class="flex-grow-1" style="margin-left: 250px;">
+      <header class="navbar-custom d-flex justify-content-end align-items-center px-4" style="height: 64px;">
+        <span class="text-secondary fw-medium">Administrador</span>
+      </header>
+
+      <div class="p-4 mx-auto" style="max-width: 800px;">
+        <div class="d-flex align-items-center gap-3 mb-4">
+          <div class="bg-primary text-white p-2 rounded">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"></path><path d="M9 17h6"></path><path d="M9 13h6"></path></svg>
+          </div>
+          <h2 class="m-0 fw-bold">Gestión de Procesos</h2>
+        </div>
+
+        <ul class="nav nav-tabs mb-4">
+          <li class="nav-item">
+            <button class="nav-link active fw-bold" id="tab-nuevo" onclick="mostrarPestana('nuevo')">Apertura / Cotización</button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" id="tab-seguimiento" onclick="mostrarPestana('seguimiento')">Seguimiento y Contratos</button>
+          </li>
+        </ul>
+
+        <div class="card">
+          <div class="card-body">
+            <!-- Formulario Nuevo Proceso -->
+            <form id="form-nuevo-proceso" onsubmit="registrarProceso(event)">
+              <h5 class="mb-3 fw-bold border-bottom pb-2">Apertura de Proceso</h5>
+              <div class="row g-3 mb-4">
+                <div class="col-md-12">
+                  <label class="form-label fw-medium">Proveedor *</label>
+                  <select name="proveedorId" class="form-select" required>
+                    <!-- Las opciones deben cargarse dinámicamente, aquí dejamos ejemplos -->
+                    <option value="">Selecciona el proveedor...</option>
+                    <option value="ABC123456T1">ABC123456T1 - Empresa SA</option>
+                  </select>
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label fw-medium">Concepto / Descripción del Servicio *</label>
+                  <textarea name="concepto" class="form-control" rows="2" required placeholder="Mantenimiento preventivo..."></textarea>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Monto Total Acordado (MXN) *</label>
+                  <input type="number" name="monto" class="form-control" required placeholder="0.00" />
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Cotización Oficial (PDF) *</label>
+                  <input type="file" name="cotizacionFile" class="form-control" accept=".pdf" required />
+                </div>
+              </div>
+              <div class="d-flex justify-content-end">
+                <button type="submit" class="btn btn-primary">Aperturar y Generar Carpeta</button>
+              </div>
+            </form>
+
+            <!-- Formulario Seguimiento (Oculto por defecto) -->
+            <form id="form-seguimiento" style="display: none;" onsubmit="actualizarProceso(event)">
+              <h5 class="mb-3 fw-bold border-bottom pb-2">Seguimiento Operativo</h5>
+              <div class="row g-3 mb-4">
+                <div class="col-md-12">
+                  <label class="form-label fw-medium">Seleccionar Proceso Activo *</label>
+                  <select name="procesoId" class="form-select" required>
+                    <option value="">Selecciona un proceso en curso...</option>
+                    <option value="PR-1023">PR-1023 - Mantenimiento Bombas</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Actualizar Estatus</label>
+                  <select name="estatus" class="form-select">
+                    <option value="CONTRATADO">Contratado</option>
+                    <option value="EN_PROGRESO">En Progreso</option>
+                    <option value="PAGADO_TOTAL">Pagado Total</option>
+                    <option value="CERRADO">Cerrado</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Esquema de Pago</label>
+                  <select name="esquemaPago" class="form-select">
+                    <option value="100">Pago Total (100%)</option>
+                    <option value="50-50">Anticipo 50% / Finiquito 50%</option>
+                    <option value="parcialidades">Parcialidades</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Contrato Firmado (PDF)</label>
+                  <input type="file" name="contratoFile" class="form-control" accept=".pdf" />
+                </div>
+              </div>
+              <div class="d-flex justify-content-end">
+                <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="app.js"></script>
+  <script>
+    function mostrarPestana(id) {
+      document.getElementById('form-nuevo-proceso').style.display = id === 'nuevo' ? 'block' : 'none';
+      document.getElementById('form-seguimiento').style.display = id === 'seguimiento' ? 'block' : 'none';
+      
+      document.getElementById('tab-nuevo').classList.toggle('active', id === 'nuevo');
+      document.getElementById('tab-nuevo').classList.toggle('fw-bold', id === 'nuevo');
+      document.getElementById('tab-seguimiento').classList.toggle('active', id === 'seguimiento');
+      document.getElementById('tab-seguimiento').classList.toggle('fw-bold', id === 'seguimiento');
+    }
+  </script>
+</body>
+</html>

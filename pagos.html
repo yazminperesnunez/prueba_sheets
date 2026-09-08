@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registro de Pagos</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="d-flex">
+    <!-- Sidebar -->
+    <aside class="bg-white border-end vh-100 position-fixed" style="width: 250px; z-index: 1000;">
+      <div class="p-4 border-bottom d-flex align-items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16l-3 -2l-2 2l-2 -2l-2 -2l-2 -2l-3 2"></path><path d="M14 8h-2.5a1.5 1.5 0 0 0 0 3h1a1.5 1.5 0 0 1 0 3h-2.5m2 0v1.5m0 -9v1.5"></path></svg>
+        <span class="fw-bold text-primary">SaaS Proveedores</span>
+      </div>
+      <nav class="p-3">
+        <a href="index.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6v8h-6z"></path><path d="M4 16h6v4h-6z"></path><path d="M14 12h6v8h-6z"></path><path d="M14 4h6v4h-6z"></path></svg>
+          Dashboard
+        </a>
+        <a href="proveedores.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"></path><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"></path></svg>
+          Proveedores
+        </a>
+        <a href="procesos.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"></path><path d="M9 17h6"></path><path d="M9 13h6"></path></svg>
+          Procesos
+        </a>
+        <a href="pagos.html" class="nav-link active d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5m0 3a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z"></path><path d="M3 10l18 0"></path><path d="M7 15l.01 0"></path><path d="M11 15l2 0"></path></svg>
+          Pagos
+        </a>
+      </nav>
+    </aside>
+
+    <main class="flex-grow-1" style="margin-left: 250px;">
+      <header class="navbar-custom d-flex justify-content-end align-items-center px-4" style="height: 64px;">
+        <span class="text-secondary fw-medium">Administrador</span>
+      </header>
+
+      <div class="p-4 mx-auto" style="max-width: 800px;">
+        <div class="d-flex align-items-center gap-3 mb-4">
+          <div class="bg-primary text-white p-2 rounded">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5m0 3a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z"></path><path d="M3 10l18 0"></path><path d="M7 15l.01 0"></path><path d="M11 15l2 0"></path></svg>
+          </div>
+          <h2 class="m-0 fw-bold">Registro de Pagos y Parcialidades</h2>
+        </div>
+
+        <div class="card">
+          <div class="card-header">Nuevo Abono a Proceso</div>
+          <div class="card-body">
+            
+            <div class="alert alert-info mb-4" role="alert">
+              <h4 class="alert-heading fs-6 fw-bold">Automatización de CFDI</h4>
+              <p class="mb-0 small">Al registrar este pago, el estatus del CFDI pasará a <strong>PENDIENTE_COMPLEMENTO</strong> automáticamente en Sheets.</p>
+            </div>
+
+            <form onsubmit="registrarPago(event)">
+              <div class="row g-3 mb-4">
+                <div class="col-md-12">
+                  <label class="form-label fw-medium">Seleccionar Proceso con Saldo Pendiente *</label>
+                  <select name="procesoId" class="form-select" required>
+                    <option value="">Selecciona un proceso...</option>
+                    <option value="PR-1023">PR-1023 (Saldo: $75,000.00)</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Monto a Abonar (MXN) *</label>
+                  <input type="number" name="montoAbonado" class="form-control" required placeholder="0.00" />
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Fecha de Transferencia *</label>
+                  <input type="date" name="fechaTransferencia" class="form-control" required />
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label fw-medium">Comprobante (PDF/Imagen) *</label>
+                  <input type="file" name="comprobanteFile" class="form-control" accept=".pdf,.png,.jpg" required />
+                </div>
+              </div>
+              <div class="d-flex justify-content-end">
+                <button type="submit" class="btn btn-success">Aplicar Pago</button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
