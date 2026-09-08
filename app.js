@@ -1,7 +1,7 @@
 // version_sheets_drive/app.js
 // Conexión directa a Google Sheets y Google Drive vía Google Apps Script
 
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxlejf90BKS-0hUI9PuujVBf40sb02rIRQIaFyVRElMrkpzlRBv2tbPRV-XwhpcO6-P/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyQB9HYlXN09aZ7jzTuSayr8yogQ4XbmUw8ZlUGcMuE2aqILZWFPEqXeFRWY9Qrg6XZ/exec";
 
 // ==========================================
 // MÓDULO: DASHBOARD (index.html)
@@ -48,10 +48,16 @@ async function cargarProcesosActivos() {
     }
 
     procesos.forEach(p => {
-      const cotLink = p.cotizacion_url ? `<br><a href="${p.cotizacion_url}" target="_blank" class="small text-primary">Ver Cotización en Drive</a>` : '';
+      let docLink = '';
+      if (p.cotizacion_url) {
+        docLink = `<br><a href="${p.cotizacion_url}" target="_blank" class="badge bg-outline-primary text-primary border text-decoration-none mt-1">Abrir Carpeta / Doc en Drive</a>`;
+      } else if (p.contrato_url) {
+        docLink = `<br><a href="${p.contrato_url}" target="_blank" class="badge bg-outline-primary text-primary border text-decoration-none mt-1">Abrir Carpeta / Doc en Drive</a>`;
+      }
+
       const fila = `
         <tr>
-          <td><span class="fw-medium">${p.id}</span><br><small class="text-secondary">${p.concepto}</small>${cotLink}</td>
+          <td><span class="fw-medium">${p.id}</span><br><small class="text-secondary">${p.concepto}</small>${docLink}</td>
           <td>${p.razon_social || p.proveedor_id}</td>
           <td>${formatoMoneda(p.monto_acordado)}</td>
           <td><span class="text-danger fw-medium">${formatoMoneda(p.saldo_pendiente)}</span></td>
@@ -85,17 +91,18 @@ async function cargarProveedores() {
     const proveedores = res.proveedores;
     tbody.innerHTML = '';
     if (proveedores.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="text-center">No hay proveedores registrados en Google Sheets.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center">No hay proveedores registrados en Google Sheets.</td></tr>';
       return;
     }
 
     proveedores.forEach(p => {
-      const docLink = p.carpeta_url 
-        ? `<a href="${p.carpeta_url}" target="_blank" class="btn btn-sm btn-outline-primary">Abrir Carpeta Drive</a>` 
+      const docLink = p.carpeta_url
+        ? `<a href="${p.carpeta_url}" target="_blank" class="btn btn-sm btn-outline-primary">Abrir Carpeta Drive</a>`
         : '<span class="text-secondary small">Sin carpeta</span>';
 
       const fila = `
         <tr>
+          <td><span class="badge bg-light text-primary border">${p.id || '-'}</span></td>
           <td class="fw-medium">${p.rfc}</td>
           <td>${p.razon_social}</td>
           <td>${p.correo}</td>
@@ -107,7 +114,7 @@ async function cargarProveedores() {
     });
   } catch (error) {
     console.error("Error cargando proveedores:", error);
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error al cargar proveedores de Sheets.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Error al cargar proveedores de Sheets.</td></tr>';
   }
 }
 
@@ -235,7 +242,8 @@ async function registrarProceso(event) {
     const res = await enviarPeticionAppsScript(payload);
 
     if (res && res.success) {
-      alert("¡Proceso creado exitosamente! Se creó la subcarpeta dentro de la carpeta del proveedor en Google Drive.");
+      const msgCarpeta = res.carpetaUrl ? "\n\nCarpeta en Drive: " + res.carpetaUrl : "";
+      alert("¡Proceso " + res.idProceso + " creado exitosamente!" + msgCarpeta);
       form.reset();
     } else {
       throw new Error(res.error || "No se pudo registrar el proceso en Sheets.");
@@ -371,7 +379,7 @@ async function enviarPeticionAppsScript(data) {
 
   // Las acciones de lectura las enviamos por GET para máxima compatibilidad con navegadores y GitHub Pages
   const accionesLectura = ["obtenerMetricas", "obtenerProcesosActivos", "obtenerProveedores", "obtenerProcesosConSaldo"];
-  
+
   if (accionesLectura.includes(data.accion)) {
     const params = new URLSearchParams(data);
     const res = await fetch(`${SCRIPT_URL}?${params.toString()}`, {

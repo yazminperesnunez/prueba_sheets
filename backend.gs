@@ -263,7 +263,7 @@ function procesarAltaProveedor(data) {
 }
 
 // ---------------------------------------------------
-// 4. APERTURA DE PROCESO Y SUB-CARPETA EN DRIVE
+// 4. APERTURA DE PROCESO Y CARPETA EN DRIVE
 // ---------------------------------------------------
 function procesarNuevoProceso(data) {
   const ss = getSpreadsheet();
@@ -283,27 +283,49 @@ function procesarNuevoProceso(data) {
   }
 
   let idProceso = "PR-" + Math.floor(1000 + Math.random() * 9000);
+  let carpetaProceso = null;
+  let urlCarpetaProceso = "";
   let urlCotizacion = "";
 
-  // Crear subcarpeta del proceso dentro de la carpeta del proveedor en Drive
+  // Intentar crear la carpeta dentro de la carpeta del proveedor en Drive
   if (urlCarpetaProv) {
     try {
       let matches = urlCarpetaProv.match(/[-\w]{25,}/);
       if (matches) {
-        let idCarpeta = matches[0];
-        let carpetaProv = DriveApp.getFolderById(idCarpeta);
-        let subcarpetaProc = carpetaProv.createFolder(idProceso + " - " + (data.concepto || "").substring(0, 30));
-
-        if (data.cotizacionFile) {
-          urlCotizacion = guardarArchivoDriveBlob(subcarpetaProc, data.cotizacionFile, "1_Cotizacion_" + idProceso);
-        }
+        let carpetaProv = DriveApp.getFolderById(matches[0]);
+        let nombreSubcarpeta = idProceso + " - " + (data.concepto || "").substring(0, 35).trim();
+        carpetaProceso = carpetaProv.createFolder(nombreSubcarpeta);
+        carpetaProceso.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        urlCarpetaProceso = carpetaProceso.getUrl();
       }
     } catch (errDrive) {
-      Logger.log("Error creando subcarpeta Drive: " + errDrive);
+      Logger.log("Error creando carpeta del proceso dentro del proveedor: " + errDrive);
     }
   }
 
+  // Si no se encontró carpeta de proveedor, crear la carpeta de proceso en la raíz de EXPEDIENTES
+  if (!carpetaProceso) {
+    try {
+      let iterador = DriveApp.getFoldersByName("EXPEDIENTES_PROVEEDORES");
+      let carpetaRaiz = iterador.hasNext() ? iterador.next() : DriveApp.createFolder("EXPEDIENTES_PROVEEDORES");
+      let nombreCarpeta = idProceso + " - " + (razonSocial || data.proveedorId) + " - " + (data.concepto || "").substring(0, 30).trim();
+      carpetaProceso = carpetaRaiz.createFolder(nombreCarpeta);
+      carpetaProceso.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      urlCarpetaProceso = carpetaProceso.getUrl();
+    } catch (errDrive2) {
+      Logger.log("Error creando carpeta de proceso en raíz: " + errDrive2);
+    }
+  }
+
+  // Guardar archivo de cotización dentro de la carpeta del proceso
+  if (data.cotizacionFile && carpetaProceso) {
+    urlCotizacion = guardarArchivoDriveBlob(carpetaProceso, data.cotizacionFile, "1_Cotizacion_" + idProceso);
+  }
+
   let monto = parseFloat(data.monto) || 0;
+
+  // Guardamos urlCotizacion o urlCarpetaProceso para tener siempre acceso a la carpeta
+  let urlDocumentacion = urlCotizacion || urlCarpetaProceso;
 
   sheetProc.appendRow([
     idProceso,
@@ -312,13 +334,18 @@ function procesarNuevoProceso(data) {
     data.concepto,
     monto,
     monto, // Saldo inicial
-    urlCotizacion,
-    "",    // Contrato URL
+    urlDocumentacion,
+    urlCarpetaProceso, // Guardamos enlace de carpeta en columna de soporte
     "EN_COTIZACION",
     new Date()
   ]);
 
-  return { success: true, idProceso: idProceso };
+  return { 
+    success: true, 
+    idProceso: idProceso, 
+    carpetaUrl: urlCarpetaProceso,
+    cotizacionUrl: urlCotizacion 
+  };
 }
 
 // ---------------------------------------------------
