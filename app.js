@@ -1,7 +1,7 @@
 // version_sheets_drive/app.js
 // Conexión directa a Google Sheets y Google Drive vía Google Apps Script
 
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyQB9HYlXN09aZ7jzTuSayr8yogQ4XbmUw8ZlUGcMuE2aqILZWFPEqXeFRWY9Qrg6XZ/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz1bRZi-2sz-mKJzxbam_3XVh56Aoq7Y0QussN6G9zM-mARUUnh5ziNApMInHzJBlvw/exec";
 
 // ==========================================
 // MÓDULO: DASHBOARD (index.html)
