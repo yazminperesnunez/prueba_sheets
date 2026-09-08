@@ -28,6 +28,12 @@ function doPost(e) {
     const data = JSON.parse(e.postData.contents);
     const accion = data.accion;
 
+    // Regla de Seguridad Máxima: El perfil CONTADOR es estrictamente de solo lectura y auditoría
+    const accionesModificacion = ["registrarProveedor", "registrarProceso", "actualizarProceso", "registrarPago"];
+    if (data.rolAuth === "CONTADOR" && accionesModificacion.includes(accion)) {
+      return respuestaJSON({ success: false, error: "Acceso denegado: El rol de Contador no tiene permisos de modificación o creación." }, 403);
+    }
+
     if (accion === "obtenerMetricas") {
       return respuestaJSON(obtenerMetricasDashboard());
     }
@@ -357,9 +363,12 @@ function procesarActualizacionProceso(data) {
   const dataProc = sheetProc.getDataRange().getValues();
 
   let fila = -1;
+  let urlCarpetaProceso = "";
   for (let i = 1; i < dataProc.length; i++) {
     if (dataProc[i][0] === data.procesoId) {
       fila = i + 1;
+      // Columna 7 o 6 pueden tener la URL de cotización o carpeta
+      urlCarpetaProceso = dataProc[i][7] || dataProc[i][6] || "";
       break;
     }
   }
@@ -371,7 +380,13 @@ function procesarActualizacionProceso(data) {
   }
 
   if (data.contratoFile) {
-    let urlContrato = guardarArchivoDriveEnRaiz(data.contratoFile, "Contrato_" + data.procesoId);
+    let carpetaDestino = obtenerCarpetaDesdeUrl(urlCarpetaProceso);
+    let urlContrato = "";
+    if (carpetaDestino) {
+      urlContrato = guardarArchivoDriveBlob(carpetaDestino, data.contratoFile, "2_Contrato_" + data.procesoId);
+    } else {
+      urlContrato = guardarArchivoDriveEnRaiz(data.contratoFile, "Contrato_" + data.procesoId);
+    }
     sheetProc.getRange(fila, 8).setValue(urlContrato);
   }
 
@@ -389,11 +404,13 @@ function procesarNuevoPago(data) {
 
   let filaProceso = -1;
   let saldoActual = 0;
+  let urlCarpetaProceso = "";
 
   for (let i = 1; i < dataProc.length; i++) {
     if (dataProc[i][0] === data.procesoId) {
       filaProceso = i + 1;
       saldoActual = parseFloat(dataProc[i][5]) || 0;
+      urlCarpetaProceso = dataProc[i][7] || dataProc[i][6] || "";
       break;
     }
   }
@@ -403,7 +420,12 @@ function procesarNuevoPago(data) {
 
   let urlComprobante = "";
   if (data.comprobanteFile) {
-    urlComprobante = guardarArchivoDriveEnRaiz(data.comprobanteFile, "FichaPago_" + idPago);
+    let carpetaDestino = obtenerCarpetaDesdeUrl(urlCarpetaProceso);
+    if (carpetaDestino) {
+      urlComprobante = guardarArchivoDriveBlob(carpetaDestino, data.comprobanteFile, "3_FichaPago_" + idPago);
+    } else {
+      urlComprobante = guardarArchivoDriveEnRaiz(data.comprobanteFile, "FichaPago_" + idPago);
+    }
   }
 
   sheetPagos.appendRow([
@@ -436,21 +458,40 @@ function procesarNuevoPago(data) {
 function procesarSubidaCFDI(data) {
   const ss = getSpreadsheet();
   const sheetPagos = ss.getSheetByName("Pagos");
+  const sheetProc = ss.getSheetByName("Procesos");
   const dataPagos = sheetPagos.getDataRange().getValues();
 
   let filaPago = -1;
+  let procesoId = "";
   for (let i = 1; i < dataPagos.length; i++) {
     if (dataPagos[i][0] === data.pagoId) {
       filaPago = i + 1;
+      procesoId = dataPagos[i][1];
       break;
     }
   }
 
   if (filaPago === -1) throw new Error("Pago no encontrado: " + data.pagoId);
 
+  let urlCarpetaProceso = "";
+  if (procesoId && sheetProc) {
+    const dataProc = sheetProc.getDataRange().getValues();
+    for (let j = 1; j < dataProc.length; j++) {
+      if (dataProc[j][0] === procesoId) {
+        urlCarpetaProceso = dataProc[j][7] || dataProc[j][6] || "";
+        break;
+      }
+    }
+  }
+
   let urlXML = "";
   if (data.xmlFile) {
-    urlXML = guardarArchivoDriveEnRaiz(data.xmlFile, "CFDI_" + data.pagoId);
+    let carpetaDestino = obtenerCarpetaDesdeUrl(urlCarpetaProceso);
+    if (carpetaDestino) {
+      urlXML = guardarArchivoDriveBlob(carpetaDestino, data.xmlFile, "4_CFDI_" + data.pagoId);
+    } else {
+      urlXML = guardarArchivoDriveEnRaiz(data.xmlFile, "CFDI_" + data.pagoId);
+    }
   }
 
   sheetPagos.getRange(filaPago, 7).setValue("COMPLETO");
@@ -462,6 +503,29 @@ function procesarSubidaCFDI(data) {
 // ---------------------------------------------------
 // AUXILIARES DRIVE & JSON
 // ---------------------------------------------------
+function obtenerCarpetaDesdeUrl(url) {
+  if (!url) return null;
+  try {
+    let matches = url.match(/[-\w]{25,}/);
+    if (!matches) return null;
+    let id = matches[0];
+    
+    // Si la URL es de un archivo, obtener su carpeta contenedora
+    try {
+      let archivo = DriveApp.getFileById(id);
+      let padres = archivo.getParents();
+      if (padres.hasNext()) return padres.next();
+    } catch (e) {
+      // Si no es archivo, intentar como carpeta
+    }
+
+    return DriveApp.getFolderById(id);
+  } catch (err) {
+    Logger.log("No se pudo obtener carpeta desde URL: " + err);
+    return null;
+  }
+}
+
 function guardarArchivoDriveBlob(carpetaTarget, fileObj, nombreDeseado) {
   let bytes = Utilities.base64Decode(fileObj.data);
   let ext = fileObj.name.indexOf('.') !== -1 ? fileObj.name.substring(fileObj.name.lastIndexOf('.')) : '';

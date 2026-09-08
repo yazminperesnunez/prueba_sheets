@@ -1,7 +1,7 @@
 // version_sheets_drive/app.js
 // Conexión directa a Google Sheets y Google Drive vía Google Apps Script
 
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbycVrpNeTeNoiVVDyr_Ul_FjZq_nAfh2zNurDz08X_tUGWzpo3Jxf-O1t8HJbXgnU4X/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyQB9HYlXN09aZ7jzTuSayr8yogQ4XbmUw8ZlUGcMuE2aqILZWFPEqXeFRWY9Qrg6XZ/exec";
 
 // ==========================================
 // MÓDULO: DASHBOARD (index.html)
@@ -375,6 +375,13 @@ async function subirCFDI(event) {
 async function enviarPeticionAppsScript(data) {
   if (SCRIPT_URL.includes("AKfycbz_TU_SCRIPT_ID")) {
     console.warn("Recuerda configurar la constante SCRIPT_URL con el enlace de tu Web App de Google Apps Script.");
+  }
+
+  // Adjuntar información del usuario autenticado para auditoría y control de permisos en servidor
+  const usuarioSesion = (typeof obtenerUsuarioActual === "function") ? obtenerUsuarioActual() : null;
+  if (usuarioSesion) {
+    data.usuarioAuth = usuarioSesion.usuario;
+    data.rolAuth = usuarioSesion.rol;
   }
 
   // Las acciones de lectura las enviamos por GET para máxima compatibilidad con navegadores y GitHub Pages

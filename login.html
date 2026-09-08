@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SaaS Proveedores | Iniciar Sesión</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-light d-flex align-items-center min-vh-100">
+
+  <div class="container" style="max-width: 440px;">
+    <div class="text-center mb-4">
+      <div class="d-inline-flex p-3 bg-primary text-white rounded-3 mb-3 shadow-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16l-3 -2l-2 2l-2 -2l-2 2l-2 -2l-3 2"></path><path d="M14 8h-2.5a1.5 1.5 0 0 0 0 3h1a1.5 1.5 0 0 1 0 3h-2.5m2 0v1.5m0 -9v1.5"></path></svg>
+      </div>
+      <h3 class="fw-bold text-dark">SaaS Proveedores</h3>
+      <p class="text-muted small">Control de Compras, Facturas y Contratos</p>
+    </div>
+
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-body p-4">
+        <h5 class="fw-bold mb-3 text-center">Acceso Seguro</h5>
+        
+        <div id="login-alert" class="alert alert-danger d-none small py-2" role="alert"></div>
+
+        <form onsubmit="iniciarSesion(event)">
+          <div class="mb-3">
+            <label class="form-label fw-medium small">Usuario o Correo</label>
+            <input type="text" id="login-user" class="form-control" required placeholder="ej. admin o contador" autofocus>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label fw-medium small">Contraseña</label>
+            <input type="password" id="login-pass" class="form-control" required placeholder="••••••••">
+          </div>
+
+          <button type="submit" id="btn-login" class="btn btn-primary w-100 py-2 fw-medium">
+            Entrar al Sistema
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="text-center mt-4">
+      <p class="text-muted small">Protección de Datos & Google Sheets Enterprise</p>
+    </div>
+  </div>
+
+  <script src="auth.js"></script>
+</body>
+</html>
