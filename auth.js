@@ -13,23 +13,23 @@ const USUARIOS_SISTEMA = [
     nombre: "Administrador General",
     rol: "ADMIN", // Acceso Total (Dashboard, Crear Proveedores, Procesos, Pagos)
     // Hash SHA-256 de "AdminSeguro*2026"
-    passHash: "e1e550e59a72b8d009b0b4ef7721867c29e7c541dd441b44ec9daef46faea0f5"
+    passHash: "f9a405326961b861bb961beb0e4c5c3f7eaba889e5b4f04e246d374fd15bf35f"
   },
   {
     usuario: "contador",
     correo: "contador@empresa.com",
     nombre: "Contador / Auditor",
-    rol: "CONTADOR", // Solo lectura y consulta de métricas, proveedores, procesos y CFDIs (NO puede alterar ni dar altas)
+    rol: "CONTADOR", // Solo lectura y consulta de métricas, proveedores, procesos y CFDIs
     // Hash SHA-256 de "Contador*Finanzas2026"
-    passHash: "1bb6f0f5b9d31d9a2ff567ef54972e365fa50058b724564cff07ee5ec2136e05"
+    passHash: "f4b58006ba2ff7b65329d51ad8df2273405e6dd3d9e3b50920361f41cd9a759a"
   },
   {
     usuario: "operaciones",
     correo: "operaciones@empresa.com",
     nombre: "Gestor de Proyectos",
-    rol: "OPERACIONES", // Puede aperturar y gestionar procesos y proveedores, pero no pagos
+    rol: "OPERACIONES", // Procesos y proveedores, pero no pagos
     // Hash SHA-256 de "Operaciones*Proyectos2026"
-    passHash: "bc7279b940e4f5fc67d8fca02d131f79c2ca2dfc28256a4220b296f8c7e9975b"
+    passHash: "84247a5163d02d5596fe405cbe90f773331895375d9b80bdf26cb0426f9fd9f6"
   }
 ];
 
