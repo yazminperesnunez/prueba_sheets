@@ -70,6 +70,10 @@ function doPost(e) {
       return respuestaJSON(procesarSubidaCFDI(data));
     }
 
+    if (accion === "emitirOrdenCompra") {
+      return respuestaJSON(procesarEmisionOrdenCompra(data));
+    }
+
     return respuestaJSON({ success: false, error: "Acción no reconocida: " + accion }, 400);
 
   } catch (error) {
@@ -104,15 +108,28 @@ function obtenerMetricasDashboard() {
   let totalPagado = 0;
   let saldoPendiente = 0;
   let complementosFaltantes = 0;
+  let facturasFaltantes = 0;
+  let proximos7Dias = 0;
 
   for (let i = 1; i < dataProc.length; i++) {
     let monto = parseFloat(dataProc[i][4]) || 0;
     let saldo = parseFloat(dataProc[i][5]) || 0;
     let estatus = (dataProc[i][8] || "").toString().toUpperCase();
+    let urlDoc = (dataProc[i][6] || "").toString();
 
     if (estatus !== "CERRADO") {
       totalCompras += monto;
       saldoPendiente += saldo;
+
+      // Facturas faltantes: procesos con orden emitida sin factura/cfdi
+      if (saldo > 0 && estatus !== "EN_COTIZACION" && !urlDoc.toLowerCase().includes(".xml")) {
+        facturasFaltantes++;
+      }
+
+      // Proyección compromisos próximos 7 días
+      if (saldo > 0 && (estatus.includes("VENCER") || estatus.includes("ORDEN_COMPRA") || estatus === "CONTRATADO")) {
+        proximos7Dias += (saldo * 0.5);
+      }
     }
   }
 
@@ -131,6 +148,8 @@ function obtenerMetricasDashboard() {
     totalCompras: totalCompras,
     totalPagado: totalPagado,
     saldoPendiente: saldoPendiente,
+    proximos7Dias: proximos7Dias,
+    facturasFaltantes: facturasFaltantes,
     complementosFaltantes: complementosFaltantes,
     totalProveedores: Math.max(0, dataProv.length - 1)
   };
@@ -539,6 +558,91 @@ function guardarArchivoDriveEnRaiz(fileObj, nombreDeseado) {
   let iterador = DriveApp.getFoldersByName("EXPEDIENTES_PROVEEDORES");
   let carpeta = iterador.hasNext() ? iterador.next() : DriveApp.createFolder("EXPEDIENTES_PROVEEDORES");
   return guardarArchivoDriveBlob(carpeta, fileObj, nombreDeseado);
+}
+
+// ---------------------------------------------------
+// 8. EMISIÓN DE ORDEN DE COMPRA (P2P AUTOMATIZADO)
+// ---------------------------------------------------
+function procesarEmisionOrdenCompra(data) {
+  const ss = getSpreadsheet();
+  let sheetProc = ss.getSheetByName("Procesos");
+  if (!sheetProc) {
+    sheetProc = ss.insertSheet("Procesos");
+    sheetProc.appendRow(["ID Proceso", "Proveedor ID / RFC", "Razón Social", "Concepto", "Monto Acordado", "Saldo Pendiente", "Cotización / Doc", "Carpeta Drive", "Estatus", "Fecha"]);
+  }
+
+  const idProceso = data.procesoId || ("PR-" + Math.floor(1000 + Math.random() * 9000));
+  const folioOC = data.folioOC || ("OC-" + Math.floor(1000 + Math.random() * 9000));
+  const proveedorNombre = data.proveedorNombre || data.proveedorRfc;
+  const concepto = data.concepto || "Adquisición de materiales";
+  const monto = parseFloat(data.montoAcordado) || 0;
+  const montoMXN = parseFloat(data.montoNormalizadoMXN) || monto;
+
+  // Buscar o crear carpeta de proceso en Google Drive
+  let carpetaRaiz;
+  let iterador = DriveApp.getFoldersByName("EXPEDIENTES_PROVEEDORES");
+  if (iterador.hasNext()) {
+    carpetaRaiz = iterador.next();
+  } else {
+    carpetaRaiz = DriveApp.createFolder("EXPEDIENTES_PROVEEDORES");
+  }
+
+  let nombreCarpeta = idProceso + " - " + proveedorNombre.substring(0, 30).trim();
+  let carpetaProceso = carpetaRaiz.createFolder(nombreCarpeta);
+  carpetaProceso.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  // Guardar archivo PDF de la Orden de Compra en Drive
+  let urlPDF_OC = "";
+  let blobOC = null;
+  if (data.pdfOCFile) {
+    let bytes = Utilities.base64Decode(data.pdfOCFile.data);
+    blobOC = Utilities.newBlob(bytes, "application/pdf", folioOC + "_" + data.proveedorRfc + ".pdf");
+    let archivoOC = carpetaProceso.createFile(blobOC);
+    archivoOC.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    urlPDF_OC = archivoOC.getUrl();
+  }
+
+  // Registrar en hoja de Procesos
+  sheetProc.appendRow([
+    idProceso,
+    data.proveedorRfc || "",
+    proveedorNombre,
+    concepto + " [Folio: " + folioOC + "]",
+    montoMXN,
+    montoMXN, // Saldo inicial
+    urlPDF_OC || carpetaProceso.getUrl(),
+    carpetaProceso.getUrl(),
+    "ORDEN_COMPRA_EMITIDA",
+    new Date()
+  ]);
+
+  // Si se solicitó envío por correo electrónico al proveedor
+  let correoEnviado = false;
+  if (data.proveedorCorreo && blobOC) {
+    try {
+      MailApp.sendEmail({
+        to: data.proveedorCorreo,
+        subject: data.correoAsunto || ("Orden de Compra " + folioOC + " Aprobada"),
+        body: (data.correoCuerpo || "Adjunto encontrará la Orden de Compra formal emitida.") + 
+              "\n\nFolio: " + folioOC + 
+              "\nID Proceso: " + idProceso + 
+              "\nFecha: " + new Date().toLocaleDateString(),
+        attachments: [blobOC]
+      });
+      correoEnviado = true;
+    } catch (errMail) {
+      Logger.log("Aviso: No se pudo enviar el correo automático: " + errMail);
+    }
+  }
+
+  return {
+    success: true,
+    idProceso: idProceso,
+    folioOC: folioOC,
+    carpetaUrl: carpetaProceso.getUrl(),
+    pdfUrl: urlPDF_OC,
+    correoEnviado: correoEnviado
+  };
 }
 
 function respuestaJSON(obj, code) {

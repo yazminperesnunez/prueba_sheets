@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema Automatizado de Compras (P2P)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <!-- PDF.js para lectura e ingesta de PDFs de cotizaciones -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <!-- html2pdf.js para exportar la Orden de Compra corporativa oficial -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <style>
+    .step-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      margin-right: 8px;
+    }
+    .wizard-step {
+      display: none;
+    }
+    .wizard-step.active {
+      display: block;
+      animation: fadeIn 0.25s ease-in-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .quote-card {
+      border: 2px solid transparent;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .quote-card:hover {
+      border-color: #0054a6;
+      box-shadow: 0 4px 12px rgba(0,84,166,0.12);
+    }
+    .quote-card.selected {
+      border-color: #0054a6;
+      background-color: #f0f7ff;
+    }
+    .badge-best-price {
+      background-color: #e6f8ea;
+      color: #1a7f37;
+      border: 1px solid #1a7f37;
+    }
+    .badge-fastest {
+      background-color: #fff8e5;
+      color: #9a6700;
+      border: 1px solid #9a6700;
+    }
+    .badge-ai-winner {
+      background: linear-gradient(135deg, #0054a6, #4299e1);
+      color: #fff;
+    }
+    .po-preview-container {
+      background: #ffffff;
+      border: 1px solid #d0d7de;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+      border-radius: 6px;
+      padding: 2.5rem;
+      max-width: 850px;
+      margin: 0 auto;
+      color: #24292f;
+      font-family: 'Inter', -apple-system, sans-serif;
+    }
+    .po-header {
+      border-bottom: 2px solid #0054a6;
+      padding-bottom: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .upload-dropzone {
+      border: 2px dashed #0054a6;
+      border-radius: 8px;
+      background: #f8fafd;
+      padding: 2.5rem;
+      text-align: center;
+      transition: background 0.2s;
+    }
+    .upload-dropzone:hover {
+      background: #eef5fc;
+    }
+  </style>
+</head>
+<body>
+  <div class="d-flex">
+    <!-- Sidebar Unificado -->
+    <aside class="bg-white border-end vh-100 position-fixed" style="width: 250px; z-index: 1000;">
+      <div class="p-4 border-bottom d-flex align-items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M5 21v-16a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v16l-3 -2l-2 2l-2 -2l-2 2l-2 -2l-3 2"></path><path d="M14 8h-2.5a1.5 1.5 0 0 0 0 3h1a1.5 1.5 0 0 1 0 3h-2.5m2 0v1.5m0 -9v1.5"></path></svg>
+        <span class="fw-bold text-primary">SaaS Proveedores</span>
+      </div>
+      <nav class="p-3">
+        <a href="index.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6v8h-6z"></path><path d="M4 16h6v4h-6z"></path><path d="M14 12h6v8h-6z"></path><path d="M14 4h6v4h-6z"></path></svg>
+          Dashboard
+        </a>
+        <a href="compras.html" class="nav-link active d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2 -1.61L23 6H6"></path></svg>
+          Compras (P2P)
+        </a>
+        <a href="proveedores.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"></path><path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path><path d="M21 21v-2a4 4 0 0 0 -3 -3.85"></path></svg>
+          Proveedores
+        </a>
+        <a href="procesos.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"></path><path d="M9 17h6"></path><path d="M9 13h6"></path></svg>
+          Procesos
+        </a>
+        <a href="pagos.html" class="nav-link d-flex align-items-center gap-2 p-2 rounded mb-1">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5m0 3a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3h-12a3 3 0 0 1 -3 -3z"></path><path d="M3 10l18 0"></path><path d="M7 15l.01 0"></path><path d="M11 15l2 0"></path></svg>
+          Pagos
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow-1" style="margin-left: 250px;">
+      <!-- Topbar con usuario y rol -->
+      <header class="navbar-custom d-flex justify-content-between align-items-center px-4" style="height: 64px;">
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-primary-subtle text-primary fw-semibold px-2 py-1">Procure-to-Pay PyME</span>
+          <span class="text-secondary small">Flujo Automatizado de Compras</span>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+          <span id="user-display" class="text-secondary fw-medium">Usuario</span>
+          <button class="btn btn-sm btn-outline-danger" onclick="cerrarSesion()">Salir</button>
+        </div>
+      </header>
+
+      <div class="p-4 mx-auto" style="max-width: 1100px;">
+        <!-- Banner de Encabezado -->
+        <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+          <div>
+            <h3 class="m-0 fw-bold">Sistema Automatizado de Compras</h3>
+            <p class="text-secondary m-0">Desde el requerimiento inicial hasta la emisión y envío formal de la Orden de Compra.</p>
+          </div>
+          <div class="text-end">
+            <span class="text-muted small d-block">ID de Proceso Activo:</span>
+            <span id="currentProcessIdBadge" class="badge bg-primary fs-6 font-monospace">REQ-INICIANDO</span>
+          </div>
+        </div>
+
+        <!-- Indicador de Fases / Stepper -->
+        <div class="card mb-4 border-0 shadow-sm">
+          <div class="card-body p-3">
+            <div class="row text-center g-2">
+              <div class="col-md-3">
+                <div id="step-pill-1" class="p-2 rounded bg-primary text-white d-flex align-items-center justify-content-center">
+                  <span class="step-badge bg-white text-primary">1</span>
+                  <span class="fw-semibold small">Requerimiento</span>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div id="step-pill-2" class="p-2 rounded bg-light text-secondary d-flex align-items-center justify-content-center">
+                  <span class="step-badge bg-secondary text-white">2</span>
+                  <span class="fw-semibold small">Cotizaciones & Matriz</span>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div id="step-pill-3" class="p-2 rounded bg-light text-secondary d-flex align-items-center justify-content-center">
+                  <span class="step-badge bg-secondary text-white">3</span>
+                  <span class="fw-semibold small">Borrador de OC</span>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div id="step-pill-4" class="p-2 rounded bg-light text-secondary d-flex align-items-center justify-content-center">
+                  <span class="step-badge bg-secondary text-white">4</span>
+                  <span class="fw-semibold small">Aprobación & Envío</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- FASE 1: INICIALIZACIÓN DEL REQUERIMIENTO DE COMPRA -->
+        <!-- ======================================================== -->
+        <div id="wizard-step-1" class="wizard-step active">
+          <div class="card shadow-sm">
+            <div class="card-header bg-white py-3">
+              <h5 class="m-0 fw-bold text-primary">Fase 1: Inicialización del Requerimiento de Compra</h5>
+            </div>
+            <div class="card-body">
+              <form id="form-requerimiento" onsubmit="p2pGuardarRequerimiento(event)">
+                <div class="row g-3 mb-3">
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Process_ID / Folio de Solicitud</label>
+                    <input type="text" id="req-process-id" class="form-control font-monospace fw-bold bg-light" readonly>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Solicitante / Departamento *</label>
+                    <input type="text" id="req-solicitante" class="form-control" required placeholder="Ej. Operaciones / Almacén">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-semibold">Fecha Límite Requerida *</label>
+                    <input type="date" id="req-fecha-limite" class="form-control" required>
+                  </div>
+                  <div class="col-md-12">
+                    <label class="form-label fw-semibold">Título / Propósito de la Compra *</label>
+                    <input type="text" id="req-concepto" class="form-control" required placeholder="Ej. Adquisición de Válvulas y Tubería Industrial de Acero">
+                  </div>
+                </div>
+
+                <!-- Criterio de Optimización -->
+                <div class="mb-4">
+                  <label class="form-label fw-semibold text-primary">Criterio de Optimización Prioritario *</label>
+                  <div class="row g-3">
+                    <div class="col-md-4">
+                      <div class="form-check card p-3 h-100 border">
+                        <input class="form-check-input" type="radio" name="criterioOpt" id="crit-economico" value="ECONOMICO" checked>
+                        <label class="form-check-label ms-2" for="crit-economico">
+                          <strong class="d-block text-success">💰 Más Económico</strong>
+                          <span class="text-secondary small">Prioriza el menor costo total (productos, flete e impuestos).</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="form-check card p-3 h-100 border">
+                        <input class="form-check-input" type="radio" name="criterioOpt" id="crit-rapido" value="RAPIDO">
+                        <label class="form-check-label ms-2" for="crit-rapido">
+                          <strong class="d-block text-warning">⚡ Entrega Más Rápida</strong>
+                          <span class="text-secondary small">Prioriza menor tiempo de entrega o disponibilidad inmediata.</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="form-check card p-3 h-100 border">
+                        <input class="form-check-input" type="radio" name="criterioOpt" id="crit-balance" value="BALANCE">
+                        <label class="form-check-label ms-2" for="crit-balance">
+                          <strong class="d-block text-primary">⚖️ Balance Costo-Tiempo</strong>
+                          <span class="text-secondary small">Algoritmo ponderado (60% precio competitivo / 40% tiempo entrega).</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Lista de Materiales / Servicios Solicitados -->
+                <div class="mb-4">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <label class="form-label fw-semibold mb-0">Lista de Materiales / Servicios a Cotizar *</label>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="p2pAgregarFilaItem()">+ Agregar Ítem</button>
+                  </div>
+                  <div class="table-responsive">
+                    <table class="table table-bordered align-middle" id="tabla-items-requerimiento">
+                      <thead class="table-light">
+                        <tr>
+                          <th style="width: 15%;">SKU / Código</th>
+                          <th style="width: 50%;">Descripción del Material o Servicio</th>
+                          <th style="width: 15%;">Cantidad</th>
+                          <th style="width: 12%;">Unidad</th>
+                          <th style="width: 8%;">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><input type="text" class="form-control form-control-sm item-sku" value="VALV-INOX-01" required></td>
+                          <td><input type="text" class="form-control form-control-sm item-desc" value="Válvula de bola acero inoxidable 2 pulgadas paso completo" required></td>
+                          <td><input type="number" class="form-control form-control-sm item-cant" value="10" min="1" required></td>
+                          <td>
+                            <select class="form-select form-select-sm item-unidad">
+                              <option value="PZA" selected>PZA</option>
+                              <option value="METROS">METROS</option>
+                              <option value="KIT">KIT</option>
+                              <option value="SRV">SERVICIO</option>
+                            </select>
+                          </td>
+                          <td class="text-center">
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="p2pEliminarFilaItem(this)">×</button>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><input type="text" class="form-control form-control-sm item-sku" value="BRIDA-316-02" required></td>
+                          <td><input type="text" class="form-control form-control-sm item-desc" value="Brida ranurada ANSI 150 lbs acero inoxidable 316" required></td>
+                          <td><input type="number" class="form-control form-control-sm item-cant" value="20" min="1" required></td>
+                          <td>
+                            <select class="form-select form-select-sm item-unidad">
+                              <option value="PZA" selected>PZA</option>
+                              <option value="METROS">METROS</option>
+                              <option value="KIT">KIT</option>
+                              <option value="SRV">SERVICIO</option>
+                            </select>
+                          </td>
+                          <td class="text-center">
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="p2pEliminarFilaItem(this)">×</button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="d-flex justify-content-end">
+                  <button type="submit" class="btn btn-primary px-4">
+                    Guardar Requerimiento y Continuar a Cotizaciones →
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- FASE 2: INGESTA Y COMPARATIVA DE COTIZACIONES -->
+        <!-- ======================================================== -->
+        <div id="wizard-step-2" class="wizard-step">
+          <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <h5 class="m-0 fw-bold text-primary">Fase 2: Ingesta y Análisis Inteligente de Cotizaciones</h5>
+              <span class="badge bg-secondary" id="count-quotes-badge">0 Cotizaciones cargadas</span>
+            </div>
+            <div class="card-body">
+              <p class="text-secondary small">Adjunta las cotizaciones en PDF de tus proveedores para el proceso <strong id="f2-process-id" class="font-monospace"></strong>. El sistema extraerá los datos clave automáticamente.</p>
+              
+              <!-- Zona de Carga Multi-PDF -->
+              <div class="upload-dropzone mb-4" id="dropzone-quotes">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="text-primary mb-2"><path d="M14 3v4a1 1 0 0 0 1 1h4"></path><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2z"></path><path d="M12 11v6"></path><path d="M9 14l3 -3l3 3"></path></svg>
+                <h6 class="fw-bold mb-1">Arrastra aquí los archivos PDF de cotizaciones</h6>
+                <p class="text-muted small mb-3">O selecciona múltiples archivos PDF de proveedores desde tu equipo</p>
+                <input type="file" id="input-quotes-pdf" class="d-none" accept=".pdf" multiple onchange="p2pProcesarArchivosCotizaciones(event)">
+                <button type="button" class="btn btn-outline-primary btn-sm px-3" onclick="document.getElementById('input-quotes-pdf').click()">
+                  Explorar Archivos PDF
+                </button>
+                <button type="button" class="btn btn-sm btn-link text-decoration-none ms-2" onclick="p2pCargarEjemplosDemostracion()">
+                  ⚡ Cargar 3 Cotizaciones de Ejemplo (Demo)
+                </button>
+              </div>
+
+              <!-- Configuración de Tipo de Cambio para Monedas -->
+              <div class="row align-items-center g-3 p-3 bg-light rounded mb-4">
+                <div class="col-md-6">
+                  <span class="fw-semibold text-secondary small">Normalización de Divisas:</span>
+                  <span class="badge bg-white text-dark border ms-2">Moneda Base: MXN (Pesos Mexicanos)</span>
+                </div>
+                <div class="col-md-6 d-flex align-items-center justify-content-md-end gap-2">
+                  <label class="small fw-semibold text-secondary mb-0">Tipo de Cambio USD → MXN:</label>
+                  <input type="number" id="tipo-cambio-usd" class="form-control form-control-sm text-end" style="width: 110px;" value="18.50" step="0.10" onchange="p2pRecalcularMatriz()">
+                </div>
+              </div>
+
+              <!-- Lista de Cotizaciones Procesadas -->
+              <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h6 class="fw-bold m-0">Cotizaciones Extraídas (<span id="parsed-quotes-count">0</span>)</h6>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="p2pAbrirModalCapturaManual()">+ Agregar Cotización Manual / Asistida</button>
+                </div>
+                <div class="row g-3" id="cards-cotizaciones-contenedor">
+                  <div class="col-12 text-center text-muted py-4 border rounded bg-white">
+                    No se han cargado cotizaciones aún. Sube los archivos PDF arriba para generar la comparativa.
+                  </div>
+                </div>
+              </div>
+
+              <!-- TABLA COMPARATIVA NORMALIZADA INTELIGENTE -->
+              <div class="mb-4" id="seccion-matriz-comparativa" style="display: none;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h5 class="fw-bold m-0 text-primary d-flex align-items-center gap-2">
+                    <span>Matriz Comparativa Normalizada</span>
+                    <span id="badge-criterio-activo" class="badge bg-info text-white fs-6"></span>
+                  </h5>
+                  <span class="small text-muted">Evaluación automática con algoritmo de scoring</span>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-hover border align-middle text-center bg-white shadow-sm" id="tabla-matriz-comparativa">
+                    <thead class="table-dark" id="thead-matriz-comparativa">
+                      <!-- Encabezados dinámicos según proveedores -->
+                    </thead>
+                    <tbody id="tbody-matriz-comparativa">
+                      <!-- Renderizado dinámico -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-between pt-3 border-top">
+                <button type="button" class="btn btn-outline-secondary" onclick="p2pIrAPaso(1)">← Regresar al Requerimiento</button>
+                <button type="button" class="btn btn-primary px-4" id="btn-continuar-fase3" disabled onclick="p2pIrAPaso(3)">
+                  Continuar a Generación de Orden de Compra →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- FASE 3: SELECCIÓN DEL PROVEEDOR Y EDICIÓN DE LA OC -->
+        <!-- ======================================================== -->
+        <div id="wizard-step-3" class="wizard-step">
+          <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+              <h5 class="m-0 fw-bold text-primary">Fase 3: Selección y Generación de la Orden de Compra (OC)</h5>
+              <span class="badge bg-success" id="badge-proveedor-seleccionado">Proveedor Seleccionado</span>
+            </div>
+            <div class="card-body">
+              <div class="alert alert-info d-flex align-items-center gap-2 py-2 mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                <span>Revisa el borrador oficial de la Orden de Compra. Puedes ajustar direcciones, condiciones o notas directamente antes de aprobar.</span>
+              </div>
+
+              <!-- Formulario de Ajuste Rápido de la OC -->
+              <div class="card bg-light border p-3 mb-4">
+                <h6 class="fw-bold mb-3 text-secondary">Ajustes del Documento Formal</h6>
+                <div class="row g-3">
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Folio Oficial de OC</label>
+                    <input type="text" id="oc-folio-input" class="form-control form-control-sm font-monospace fw-bold" readonly>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Fecha de Emisión</label>
+                    <input type="date" id="oc-fecha-input" class="form-control form-control-sm">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Tiempo / Fecha de Entrega</label>
+                    <input type="text" id="oc-entrega-input" class="form-control form-control-sm" oninput="p2pActualizarPreviewOC()">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label small fw-semibold">Condición de Pago</label>
+                    <input type="text" id="oc-pago-input" class="form-control form-control-sm" oninput="p2pActualizarPreviewOC()">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small fw-semibold">Dirección de Entrega / Embarque</label>
+                    <input type="text" id="oc-direccion-input" class="form-control form-control-sm" value="Av. De Las Industrias #450, Parque Industrial Norte, Monterrey, N.L." oninput="p2pActualizarPreviewOC()">
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small fw-semibold">Notas y Condiciones Generales</label>
+                    <input type="text" id="oc-notas-input" class="form-control form-control-sm" value="Favor de enviar factura con CDFI y XML al correo finanzas@empresa.com haciendo referencia a este folio de OC." oninput="p2pActualizarPreviewOC()">
+                  </div>
+                </div>
+              </div>
+
+              <!-- PREVISUALIZADOR CORPORATIVO DE LA ORDEN DE COMPRA (IMPRIMIBLE A PDF) -->
+              <div class="po-preview-container" id="printable-po-document">
+                <!-- Header OC -->
+                <div class="po-header d-flex justify-content-between align-items-start">
+                  <div>
+                    <h3 class="fw-bold text-primary m-0">ORDEN DE COMPRA</h3>
+                    <span class="text-secondary small fw-semibold">GRUPO INDUSTRIAL NOUSARS S.A. DE C.V.</span><br>
+                    <span class="text-muted small">RFC: GIN180512AB3 | Tel: (81) 8234-5678</span><br>
+                    <span class="text-muted small">Av. De Las Industrias #450, Monterrey, N.L., México</span>
+                  </div>
+                  <div class="text-end">
+                    <div class="bg-light p-2 rounded border">
+                      <span class="d-block small text-muted">FOLIO DE ORDEN</span>
+                      <span class="fw-bold font-monospace text-primary fs-5" id="po-preview-folio">OC-2026-001</span>
+                    </div>
+                    <span class="text-muted small d-block mt-1">Process_ID: <strong id="po-preview-process-id" class="font-monospace">PR-1024</strong></span>
+                    <span class="text-muted small d-block">Fecha: <strong id="po-preview-fecha">18/09/2026</strong></span>
+                  </div>
+                </div>
+
+                <!-- Info Proveedor y Embarque -->
+                <div class="row mb-4">
+                  <div class="col-6 border-end">
+                    <span class="text-uppercase text-secondary fw-bold small d-block border-bottom pb-1 mb-2">PROVEEDOR ADJUDICADO</span>
+                    <h6 class="fw-bold mb-1" id="po-preview-prov-nombre">PROVEEDOR INDUSTRIAL SA DE CV</h6>
+                    <span class="d-block small text-muted">RFC: <span id="po-preview-prov-rfc">PIN990101XYZ</span></span>
+                    <span class="d-block small text-muted">Contacto: <span id="po-preview-prov-contacto">ventas@proveedor.com</span></span>
+                    <span class="d-block small text-muted">Tel: <span id="po-preview-prov-tel">+52 (55) 5555-1234</span></span>
+                  </div>
+                  <div class="col-6 ps-3">
+                    <span class="text-uppercase text-secondary fw-bold small d-block border-bottom pb-1 mb-2">DATOS DE ENTREGA Y PAGO</span>
+                    <span class="d-block small text-muted">Entregar en: <strong id="po-preview-entrega-lugar">Planta 1 - Almacén General</strong></span>
+                    <span class="d-block small text-muted">Tiempo Estimado: <strong id="po-preview-tiempo" class="text-primary">3 a 5 días hábiles</strong></span>
+                    <span class="d-block small text-muted">Condición de Pago: <strong id="po-preview-pago">Crédito 30 días</strong></span>
+                    <span class="d-block small text-muted">Moneda: <strong id="po-preview-moneda">MXN (Pesos Mexicanos)</strong></span>
+                  </div>
+                </div>
+
+                <!-- Tabla de Productos -->
+                <div class="table-responsive mb-3">
+                  <table class="table table-bordered table-sm align-middle">
+                    <thead class="table-light">
+                      <tr class="text-secondary small">
+                        <th style="width: 10%;">CÓDIGO</th>
+                        <th style="width: 45%;">DESCRIPCIÓN</th>
+                        <th class="text-center" style="width: 10%;">CANT</th>
+                        <th class="text-center" style="width: 10%;">UNIDAD</th>
+                        <th class="text-end" style="width: 12%;">P. UNIT</th>
+                        <th class="text-end" style="width: 13%;">TOTAL</th>
+                      </tr>
+                    </thead>
+                    <tbody id="po-preview-items-tbody">
+                      <!-- Render de items -->
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- Totales y Notas -->
+                <div class="row align-items-start mb-4">
+                  <div class="col-7">
+                    <div class="border rounded p-2 bg-light small">
+                      <strong class="d-block text-secondary">Términos y Observaciones:</strong>
+                      <p class="m-0 text-muted" id="po-preview-observaciones">Precios netos acordados según cotización ganadora. Indispensable anexar remisión sellada al recibir en almacén.</p>
+                    </div>
+                  </div>
+                  <div class="col-5">
+                    <table class="table table-sm table-borderless text-end">
+                      <tr>
+                        <td class="text-muted">Subtotal:</td>
+                        <td class="fw-semibold" id="po-preview-subtotal">$0.00</td>
+                      </tr>
+                      <tr>
+                        <td class="text-muted">Flete / Envío:</td>
+                        <td class="fw-semibold" id="po-preview-flete">$0.00</td>
+                      </tr>
+                      <tr>
+                        <td class="text-muted">I.V.A. (16%):</td>
+                        <td class="fw-semibold" id="po-preview-iva">$0.00</td>
+                      </tr>
+                      <tr class="border-top">
+                        <td class="fw-bold fs-6 text-primary">TOTAL:</td>
+                        <td class="fw-bold fs-6 text-primary" id="po-preview-total">$0.00</td>
+                      </tr>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Firmas -->
+                <div class="row pt-4 text-center mt-3 border-top">
+                  <div class="col-6">
+                    <div style="height: 45px;" class="d-flex align-items-end justify-content-center">
+                      <span class="text-primary font-monospace fw-bold small" id="po-firma-digital-solic">[ FIRMA SOLICITANTE ]</span>
+                    </div>
+                    <div class="border-top border-dark mx-auto" style="width: 70%;"></div>
+                    <span class="small fw-semibold d-block mt-1">Elaborado por Compras</span>
+                    <span class="text-muted small" id="po-preview-firmante">Administrador General</span>
+                  </div>
+                  <div class="col-6">
+                    <div style="height: 45px;" class="d-flex align-items-end justify-content-center">
+                      <span class="text-secondary font-monospace fw-semibold small">[ AUTORIZACIÓN FINANZAS ]</span>
+                    </div>
+                    <div class="border-top border-dark mx-auto" style="width: 70%;"></div>
+                    <span class="small fw-semibold d-block mt-1">Aprobación y Visto Bueno</span>
+                    <span class="text-muted small">Dirección de Administración</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Navegación Fase 3 -->
+              <div class="d-flex justify-content-between pt-4 mt-4 border-top">
+                <button type="button" class="btn btn-outline-secondary" onclick="p2pIrAPaso(2)">← Regresar a Comparativa</button>
+                <button type="button" class="btn btn-success px-4 fw-bold" onclick="p2pIrAPaso(4)">
+                  Continuar a Aprobación Formal →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- FASE 4: APROBACIÓN Y ENVÍO AUTOMATIZADO -->
+        <!-- ======================================================== -->
+        <div id="wizard-step-4" class="wizard-step">
+          <div class="card shadow-sm">
+            <div class="card-header bg-white py-3">
+              <h5 class="m-0 fw-bold text-primary">Fase 4: Aprobación y Envío Formal de la Orden de Compra</h5>
+            </div>
+            <div class="card-body">
+              <div class="row g-4 mb-4">
+                <div class="col-md-7">
+                  <h6 class="fw-bold mb-3">Resumen de la Transacción Final</h6>
+                  <ul class="list-group mb-3">
+                    <li class="list-group-item d-flex justify-content-between">
+                      <span class="text-muted">Process_ID / Trazabilidad:</span>
+                      <strong class="font-monospace" id="f4-summary-process"></strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between">
+                      <span class="text-muted">Folio de Orden de Compra:</span>
+                      <strong class="font-monospace text-primary" id="f4-summary-folio"></strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between">
+                      <span class="text-muted">Proveedor Adjudicado:</span>
+                      <strong id="f4-summary-proveedor"></strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between">
+                      <span class="text-muted">Monto Total Acordado:</span>
+                      <strong class="text-success fs-5" id="f4-summary-monto"></strong>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between">
+                      <span class="text-muted">Tiempo de Entrega:</span>
+                      <strong id="f4-summary-tiempo"></strong>
+                    </li>
+                  </ul>
+
+                  <!-- Formulario para Envío de Correo Automatizado -->
+                  <div class="card border bg-light p-3">
+                    <h6 class="fw-bold mb-2 d-flex align-items-center gap-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+                      Notificación y Envío por Correo Electrónico
+                    </h6>
+                    <div class="mb-2">
+                      <label class="form-label small fw-semibold">Correo de Ventas del Proveedor:</label>
+                      <input type="email" id="f4-correo-destinatario" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label small fw-semibold">Asunto del Correo:</label>
+                      <input type="text" id="f4-correo-asunto" class="form-control form-control-sm" value="Nueva Orden de Compra Aprobada">
+                    </div>
+                    <div class="mb-2">
+                      <label class="form-label small fw-semibold">Mensaje Adjunto:</label>
+                      <textarea id="f4-correo-cuerpo" class="form-control form-control-sm" rows="3">Estimado proveedor, adjuntamos la Orden de Compra oficial correspondiente al proceso adjudicado. Agradecemos confirmar recepción y fecha estimada de entrega.</textarea>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-md-5">
+                  <div class="border rounded p-4 text-center h-100 d-flex flex-column justify-content-between bg-light">
+                    <div>
+                      <div class="p-3 bg-white rounded-circle d-inline-flex mb-3 shadow-sm text-success">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+                      </div>
+                      <h5 class="fw-bold">Aprobación Final de la Compra</h5>
+                      <p class="text-muted small">Al dar visto bueno formal, se ejecutarán las 3 acciones automatizadas:</p>
+                      
+                      <div class="text-start small mb-3">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                          <span class="text-success fw-bold">✓</span>
+                          <span>Generación y descarga del PDF corporativo formal.</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                          <span class="text-success fw-bold">✓</span>
+                          <span>Registro en base de datos central (Google Sheets / Drive).</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                          <span class="text-success fw-bold">✓</span>
+                          <span>Envío automático del correo con OC adjunta al proveedor.</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <button type="button" class="btn btn-success w-100 py-2 fw-bold fs-6 mb-2" id="btn-aprobar-emitir-oc" onclick="p2pAprobarYEmitirOrden()">
+                        ✓ Aprobar, Emitir PDF y Enviar OC
+                      </button>
+                      <button type="button" class="btn btn-outline-primary w-100 btn-sm" onclick="p2pDescargarSoloPDF()">
+                        📥 Solo Descargar PDF de la OC
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-start pt-3 border-top">
+                <button type="button" class="btn btn-outline-secondary" onclick="p2pIrAPaso(3)">← Regresar a Editar la OC</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- MODAL PARA REVISIÓN / CAPTURA ASISTIDA DE COTIZACIÓN (ERROR EN PDF O OCR FALLBACK) -->
+  <div class="modal fade" id="modalCapturaManual" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold text-primary">Captura Asistida / Corrección de Cotización</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small">Utiliza esta captura manual si el archivo PDF venía escaneado como imagen o si deseas ingresar directamente la cotización del proveedor.</p>
+          <form id="form-captura-asistida" onsubmit="p2pGuardarCotizacionManual(event)">
+            <div class="row g-3 mb-3">
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Nombre del Proveedor / Razón Social *</label>
+                <input type="text" id="manual-prov-nombre" class="form-control form-control-sm" required placeholder="Ej. Valvulas del Norte S.A.">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">RFC del Proveedor</label>
+                <input type="text" id="manual-prov-rfc" class="form-control form-control-sm text-uppercase" placeholder="VNO150310ABC">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Correo de Contacto *</label>
+                <input type="email" id="manual-prov-correo" class="form-control form-control-sm" required placeholder="ventas@valvulasnorte.com">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Teléfono</label>
+                <input type="text" id="manual-prov-tel" class="form-control form-control-sm" placeholder="+52 (81) 8000-1122">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Moneda Cotizada</label>
+                <select id="manual-prov-moneda" class="form-select form-select-sm">
+                  <option value="MXN" selected>MXN (Pesos Mexicanos)</option>
+                  <option value="USD">USD (Dólares Americanos)</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Tiempo de Entrega (Días Hábiles) *</label>
+                <input type="number" id="manual-prov-dias" class="form-control form-control-sm" required value="3" min="1">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label small fw-semibold">Condiciones de Pago</label>
+                <input type="text" id="manual-prov-pago" class="form-control form-control-sm" value="Crédito a 30 días">
+              </div>
+            </div>
+
+            <h6 class="fw-bold text-secondary mb-2">Desglose de Precios por Ítem Solicitado</h6>
+            <div class="table-responsive mb-3">
+              <table class="table table-bordered table-sm align-middle" id="tabla-captura-items-manual">
+                <thead class="table-light">
+                  <tr>
+                    <th>SKU</th>
+                    <th>Descripción</th>
+                    <th style="width: 15%;">Cantidad</th>
+                    <th style="width: 25%;">Precio Unitario Cotizado</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-captura-items-manual">
+                  <!-- Se llena dinámicamente con los items de la Fase 1 -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Costo de Envío / Flete (si aplica)</label>
+                <input type="number" id="manual-prov-flete" class="form-control form-control-sm" value="0" step="0.01">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small fw-semibold">Tasa de I.V.A.</label>
+                <select id="manual-prov-iva" class="form-select form-select-sm">
+                  <option value="0.16" selected>16% (General México)</option>
+                  <option value="0.08">8% (Zona Fronteriza)</option>
+                  <option value="0">0% (Exento)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="d-flex justify-content-end gap-2">
+              <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+              <button type="submit" class="btn btn-primary btn-sm px-3">Guardar Cotización en Matriz</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="auth.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // Inicializar configuraciones de PDF.js
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    }
+  </script>
+</body>
+</html>
