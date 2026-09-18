@@ -1793,12 +1793,32 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
 
   // 7. Detectar Condiciones de Pago
   let condicionesPago = "Crédito a 30 días";
-  if (/contado|anticipo|inmediato/i.test(textoNorm)) {
+  
+  // Revisión prioritaria: Parcialidades / Pagos diferidos / Esquemas por hitos
+  if (/parcialidad|parcialidades|ppd|abonos|diferido|mensualidades|plazos/i.test(textoNorm)) {
+    // Buscar si indica número de parcialidades (ej. 3 parcialidades, 2 pagos)
+    const matchParc = textoNorm.match(/(\d+)\s*(?:parcialidades|pagos|abonos|mensualidades)/i);
+    if (matchParc && matchParc[1]) {
+      condicionesPago = `Parcialidades (${matchParc[1]} pagos)`;
+    } else {
+      condicionesPago = "Pago en Parcialidades / Diferido (PPD)";
+    }
+  } else if (/anticipo\s*(?:del)?\s*(\d+)%/i.test(textoNorm)) {
+    // Caso común: 50% anticipo y saldo contra entrega / 30 días (esto es un esquema parcial/mixto, NO contado simple)
+    const matchAnticipo = textoNorm.match(/anticipo\s*(?:del)?\s*(\d+)%/i);
+    condicionesPago = `Parcialidad (${matchAnticipo[1]}% anticipo / saldo restante)`;
+  } else if (/contado\s*(?:riguroso|inmediato|comercial)?\b|100%\s*(?:anticipo|contado)|pue\b/i.test(textoNorm) && !/sin\s+anticipo/i.test(textoNorm)) {
     condicionesPago = "Contado / Anticipado";
   } else if (/15 d[ií]as/i.test(textoNorm)) {
     condicionesPago = "Crédito a 15 días";
+  } else if (/45 d[ií]as/i.test(textoNorm)) {
+    condicionesPago = "Crédito a 45 días";
   } else if (/60 d[ií]as/i.test(textoNorm)) {
     condicionesPago = "Crédito a 60 días";
+  } else if (/90 d[ií]as/i.test(textoNorm)) {
+    condicionesPago = "Crédito a 90 días";
+  } else if (/cr[eé]dito/i.test(textoNorm)) {
+    condicionesPago = "Crédito comercial";
   }
 
   // 8. Costos por cada ítem del requerimiento
