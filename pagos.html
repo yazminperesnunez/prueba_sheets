@@ -56,35 +56,66 @@
           <div class="card-header">Nuevo Abono a Proceso</div>
           <div class="card-body">
             
-            <div class="alert alert-info mb-4" role="alert">
-              <h4 class="alert-heading fs-6 fw-bold">Automatización de CFDI</h4>
-              <p class="mb-0 small">Al registrar este pago, el estatus del CFDI pasará a <strong>PENDIENTE_COMPLEMENTO</strong> automáticamente en Sheets.</p>
+            <div class="alert alert-warning mb-4 d-flex align-items-start gap-2" role="alert">
+              <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-warning flex-shrink-0 mt-1"><path d="M12 9v2m0 4v.01"></path><path d="M5 19h14a2 2 0 0 0 1.84 -2.75l-7.1 -12.25a2 2 0 0 0 -3.5 0l-7.1 12.25a2 2 0 0 0 1.75 2.75"></path></svg>
+              <div>
+                <strong class="d-block">Regla de Negocio: Cero Tolerancia al REP Faltante</strong>
+                <span class="small">Cada abono se registrará bajo el modelo <strong>PPD</strong> con estatus <strong>REP Pendiente</strong>. No se podrá cerrar la compra hasta que el proveedor entregue el complemento de pago fiscal correspondiente.</span>
+              </div>
             </div>
 
             <form onsubmit="registrarPago(event)">
               <div class="row g-3 mb-4">
                 <div class="col-md-12">
                   <label class="form-label fw-medium">Seleccionar Proceso con Saldo Pendiente *</label>
-                  <select name="procesoId" class="form-select" required>
+                  <select name="procesoId" id="selectProcesosPagos" class="form-select" required onchange="actualizarInfoProcesoEnPagos(this.value)">
                     <option value="">Selecciona un proceso...</option>
-                    <option value="PR-1023">PR-1023 (Saldo: $75,000.00)</option>
                   </select>
                 </div>
+
+                <!-- Detalle Dinámico de la Factura Global del Proceso Seleccionado -->
+                <div class="col-12" id="info-proceso-pago-container" style="display: none;">
+                  <div class="bg-light p-3 rounded border">
+                    <div class="row text-center g-2">
+                      <div class="col-md-4">
+                        <small class="text-muted d-block">Monto Factura Global</small>
+                        <strong class="text-dark font-monospace" id="info-pago-monto-global">$0.00</strong>
+                      </div>
+                      <div class="col-md-4">
+                        <small class="text-muted d-block">Saldo Pendiente Real</small>
+                        <strong class="text-danger font-monospace" id="info-pago-saldo-actual">$0.00</strong>
+                      </div>
+                      <div class="col-md-4">
+                        <small class="text-muted d-block">Esquema Fiscal</small>
+                        <span class="badge bg-primary">PPD - Parcialidades</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Número de Parcialidad / Concepto de Abono *</label>
+                  <input type="text" name="numParcialidad" id="inputNumParcialidad" class="form-control" required placeholder="Ej. Abono 1 de 3 / Anticipo 50%" />
+                  <div class="form-text small">Indica qué ministración corresponde para la trazabilidad fiscal.</div>
+                </div>
+
                 <div class="col-md-6">
                   <label class="form-label fw-medium">Monto a Abonar (MXN) *</label>
-                  <input type="number" name="montoAbonado" class="form-control" required placeholder="0.00" />
+                  <input type="number" name="montoAbonado" id="inputMontoAbonado" class="form-control font-monospace fw-bold" required placeholder="0.00" step="0.01" />
                 </div>
+
                 <div class="col-md-6">
-                  <label class="form-label fw-medium">Fecha de Transferencia *</label>
-                  <input type="date" name="fechaTransferencia" class="form-control" required />
+                  <label class="form-label fw-medium">Fecha de Transferencia Bancaria *</label>
+                  <input type="date" name="fechaTransferencia" id="inputFechaTransferencia" class="form-control" required />
                 </div>
-                <div class="col-md-12">
-                  <label class="form-label fw-medium">Comprobante (PDF/Imagen) *</label>
-                  <input type="file" name="comprobanteFile" class="form-control" accept=".pdf,.png,.jpg" required />
+
+                <div class="col-md-6">
+                  <label class="form-label fw-medium">Ficha / Comprobante Bancario (PDF/Imagen) *</label>
+                  <input type="file" name="comprobanteFile" class="form-control" accept=".pdf,.png,.jpg,.jpeg" required />
                 </div>
               </div>
               <div class="d-flex justify-content-end">
-                <button type="submit" class="btn btn-success">Aplicar Pago</button>
+                <button type="submit" class="btn btn-success px-4 py-2 fw-semibold">Aplicar Abono y Notificar REP</button>
               </div>
             </form>
 

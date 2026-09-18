@@ -64,11 +64,19 @@
       border: 1px solid #d0d7de;
       box-shadow: 0 8px 24px rgba(0,0,0,0.06);
       border-radius: 6px;
-      padding: 2.5rem;
-      max-width: 850px;
+      padding: 1.8rem;
+      max-width: 800px;
       margin: 0 auto;
       color: #24292f;
       font-family: 'Inter', -apple-system, sans-serif;
+      box-sizing: border-box;
+    }
+    .po-preview-container table,
+    .po-header,
+    .po-preview-container .row,
+    .po-preview-container .table-responsive {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
     .po-header {
       border-bottom: 2px solid #0054a6;
@@ -434,6 +442,17 @@
                     <label class="form-label small fw-semibold">Notas y Condiciones Generales</label>
                     <input type="text" id="oc-notas-input" class="form-control form-control-sm" value="Favor de enviar factura con CDFI y XML al correo finanzas@empresa.com haciendo referencia a este folio de OC." oninput="p2pActualizarPreviewOC()">
                   </div>
+
+                  <!-- Datos de Contacto y Envío de la OC al Proveedor -->
+                  <div class="col-md-6">
+                    <label class="form-label small fw-semibold text-primary">Correo Electrónico para Envío de OC (Ventas / Contacto)</label>
+                    <input type="email" id="oc-prov-correo-input" class="form-control form-control-sm" placeholder="ventas@proveedor.com" oninput="p2pActualizarPreviewOC()">
+                    <div class="form-text small">Puedes cambiar el correo receptor de la OC si es distinto al del alta general.</div>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label small fw-semibold">Teléfono de Contacto del Proveedor</label>
+                    <input type="text" id="oc-prov-tel-input" class="form-control form-control-sm" placeholder="+52 (81) ..." oninput="p2pActualizarPreviewOC()">
+                  </div>
                 </div>
               </div>
 
@@ -598,8 +617,9 @@
                       Notificación y Envío por Correo Electrónico
                     </h6>
                     <div class="mb-2">
-                      <label class="form-label small fw-semibold">Correo de Ventas del Proveedor:</label>
-                      <input type="email" id="f4-correo-destinatario" class="form-control form-control-sm" required>
+                      <label class="form-label small fw-semibold">Correo de Ventas / Destinatario de la OC:</label>
+                      <input type="email" id="f4-correo-destinatario" class="form-control form-control-sm" required oninput="p2pSincronizarCorreoDesdeFase4(this.value)">
+                      <div class="form-text small">Puedes editar este correo libremente si requieres enviarlo a un ejecutivo o sucursal diferente.</div>
                     </div>
                     <div class="mb-2">
                       <label class="form-label small fw-semibold">Asunto del Correo:</label>
@@ -672,6 +692,13 @@
           <p class="text-muted small">Utiliza esta captura manual si el archivo PDF venía escaneado como imagen o si deseas ingresar directamente la cotización del proveedor.</p>
           <form id="form-captura-asistida" onsubmit="p2pGuardarCotizacionManual(event)">
             <div class="row g-3 mb-3">
+              <div class="col-12">
+                <label class="form-label small fw-semibold text-primary">Cargar desde Catálogo de Proveedores Registrados (Opcional)</label>
+                <select id="manual-select-catalogo" class="form-select form-select-sm" onchange="p2pSeleccionarDeCatalogoManual(this.value)">
+                  <option value="">— Capturar proveedor nuevo o seleccionar uno registrado... —</option>
+                </select>
+                <div class="form-text small">Puedes elegir un proveedor dado de alta previamente o escribir uno nuevo manualmente.</div>
+              </div>
               <div class="col-md-6">
                 <label class="form-label small fw-semibold">Nombre del Proveedor / Razón Social *</label>
                 <input type="text" id="manual-prov-nombre" class="form-control form-control-sm" required placeholder="Ej. Valvulas del Norte S.A.">

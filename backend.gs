@@ -50,6 +50,14 @@ function doPost(e) {
       return respuestaJSON(obtenerProcesosConSaldo());
     }
 
+    if (accion === "obtenerParcialidadesProceso") {
+      return respuestaJSON(obtenerParcialidadesProceso(data.procesoId));
+    }
+
+    if (accion === "subirREPParcialidad") {
+      return respuestaJSON(procesarSubidaREP(data));
+    }
+
     if (accion === "registrarProveedor") {
       return respuestaJSON(procesarAltaProveedor(data));
     }
@@ -87,6 +95,7 @@ function doGet(e) {
   if (accion === "obtenerProveedores") return respuestaJSON(obtenerListadoProveedores());
   if (accion === "obtenerProcesosActivos") return respuestaJSON(obtenerListadoProcesosActivos());
   if (accion === "obtenerProcesosConSaldo") return respuestaJSON(obtenerProcesosConSaldo());
+  if (accion === "obtenerParcialidadesProceso") return respuestaJSON(obtenerParcialidadesProceso(e && e.parameter ? e.parameter.procesoId : ""));
   
   return respuestaJSON({ success: true, message: "API Google Sheets / Drive activa correctamente." });
 }
@@ -97,11 +106,11 @@ function doGet(e) {
 function obtenerMetricasDashboard() {
   const ss = getSpreadsheet();
   const sheetProc = ss.getSheetByName("Procesos");
-  const sheetPagos = ss.getSheetByName("Pagos");
+  const sheetParcialidades = ss.getSheetByName("Parcialidades_Pagos") || ss.getSheetByName("Pagos");
   const sheetProv = ss.getSheetByName("Proveedores");
 
   const dataProc = sheetProc ? sheetProc.getDataRange().getValues() : [];
-  const dataPagos = sheetPagos ? sheetPagos.getDataRange().getValues() : [];
+  const dataPagos = sheetParcialidades ? sheetParcialidades.getDataRange().getValues() : [];
   const dataProv = sheetProv ? sheetProv.getDataRange().getValues() : [];
 
   let totalCompras = 0;
@@ -111,35 +120,48 @@ function obtenerMetricasDashboard() {
   let facturasFaltantes = 0;
   let proximos7Dias = 0;
 
+  // Mapa de abonos por Process_ID para cálculo dinámico estricto
+  const abonosPorProceso = {};
+  for (let j = 1; j < dataPagos.length; j++) {
+    const rowPago = dataPagos[j];
+    const procId = (rowPago[1] || "").toString().trim();
+    const abono = parseFloat(rowPago[3]) || 0;
+    const estatusREP = (rowPago[6] || "").toString().toUpperCase();
+
+    totalPagado += abono;
+    if (procId) {
+      abonosPorProceso[procId] = (abonosPorProceso[procId] || 0) + abono;
+    }
+
+    // Regla de Negocio: Cero tolerancia al REP faltante
+    if (estatusREP === "PENDIENTE" || estatusREP === "PENDIENTE_COMPLEMENTO" || estatusREP === "") {
+      complementosFaltantes++;
+    }
+  }
+
   for (let i = 1; i < dataProc.length; i++) {
+    const procId = (dataProc[i][0] || "").toString().trim();
     let monto = parseFloat(dataProc[i][4]) || 0;
-    let saldo = parseFloat(dataProc[i][5]) || 0;
     let estatus = (dataProc[i][8] || "").toString().toUpperCase();
     let urlDoc = (dataProc[i][6] || "").toString();
 
-    if (estatus !== "CERRADO") {
+    // Saldo dinámico = Monto Total - Suma de Abonos
+    const abonosRegistrados = abonosPorProceso[procId] || 0;
+    let saldoCalculado = Math.max(0, monto - abonosRegistrados);
+
+    if (estatus !== "CERRADO" && estatus !== "PAGADO_TOTAL_CERRADO") {
       totalCompras += monto;
-      saldoPendiente += saldo;
+      saldoPendiente += saldoCalculado;
 
       // Facturas faltantes: procesos con orden emitida sin factura/cfdi
-      if (saldo > 0 && estatus !== "EN_COTIZACION" && !urlDoc.toLowerCase().includes(".xml")) {
+      if (saldoCalculado > 0 && estatus !== "EN_COTIZACION" && !urlDoc.toLowerCase().includes(".xml")) {
         facturasFaltantes++;
       }
 
       // Proyección compromisos próximos 7 días
-      if (saldo > 0 && (estatus.includes("VENCER") || estatus.includes("ORDEN_COMPRA") || estatus === "CONTRATADO")) {
-        proximos7Dias += (saldo * 0.5);
+      if (saldoCalculado > 0 && (estatus.includes("VENCER") || estatus.includes("ORDEN_COMPRA") || estatus === "CONTRATADO" || estatus.includes("PAGO_PARCIAL"))) {
+        proximos7Dias += (saldoCalculado * 0.5);
       }
-    }
-  }
-
-  for (let j = 1; j < dataPagos.length; j++) {
-    let abono = parseFloat(dataPagos[j][3]) || 0;
-    let estatusCFDI = (dataPagos[j][6] || "").toString();
-
-    totalPagado += abono;
-    if (estatusCFDI === "PENDIENTE_COMPLEMENTO") {
-      complementosFaltantes++;
     }
   }
 
@@ -150,7 +172,7 @@ function obtenerMetricasDashboard() {
     saldoPendiente: saldoPendiente,
     proximos7Dias: proximos7Dias,
     facturasFaltantes: facturasFaltantes,
-    complementosFaltantes: complementosFaltantes,
+    complementosFaltantes: complementosFaltantes, // Contador estricto de REPs faltantes
     totalProveedores: Math.max(0, dataProv.length - 1)
   };
 }
@@ -190,6 +212,29 @@ function obtenerListadoProcesosActivos() {
   const sheet = ss.getSheetByName("Procesos");
   if (!sheet) return { success: true, procesos: [] };
 
+  const sheetParcialidades = ss.getSheetByName("Parcialidades_Pagos") || ss.getSheetByName("Pagos");
+  const dataPagos = sheetParcialidades ? sheetParcialidades.getDataRange().getValues() : [];
+
+  // Indexar parcialidades por procesoId
+  const pagosPorProceso = {};
+  for (let j = 1; j < dataPagos.length; j++) {
+    const rowP = dataPagos[j];
+    const procId = (rowP[1] || "").toString().trim();
+    if (!procId) continue;
+    if (!pagosPorProceso[procId]) pagosPorProceso[procId] = [];
+
+    pagosPorProceso[procId].push({
+      id_pago: rowP[0],
+      proceso_id: procId,
+      num_parcialidad: rowP[2] || ("Abono " + pagosPorProceso[procId].length + 1),
+      monto_abonado: parseFloat(rowP[3]) || 0,
+      fecha_pago: rowP[4],
+      comprobante_url: rowP[5] || "",
+      estatus_rep: (rowP[6] || "").toString().toUpperCase() || "PENDIENTE",
+      rep_url: rowP[7] || ""
+    });
+  }
+
   const values = sheet.getDataRange().getValues();
   const procesos = [];
 
@@ -198,20 +243,71 @@ function obtenerListadoProcesosActivos() {
     const estatus = (row[8] || "").toString().toUpperCase();
     if (estatus === "CERRADO" || (!row[0] && !row[3])) continue;
 
+    const procId = (row[0] || "").toString().trim();
+    const montoAcordado = parseFloat(row[4]) || 0;
+    const parcialidades = pagosPorProceso[procId] || [];
+
+    // Cálculo dinámico del saldo
+    let totalAbonado = 0;
+    let repsPendientes = 0;
+    parcialidades.forEach(ab => {
+      totalAbonado += ab.monto_abonado;
+      if (ab.estatus_rep === "PENDIENTE" || ab.estatus_rep === "PENDIENTE_COMPLEMENTO" || !ab.estatus_rep) {
+        repsPendientes++;
+      }
+    });
+
+    const saldoCalculado = Math.max(0, montoAcordado - totalAbonado);
+
     procesos.push({
-      id: row[0],
+      id: procId,
       proveedor_id: row[1],
       razon_social: row[2],
       concepto: row[3],
-      monto_acordado: parseFloat(row[4]) || 0,
-      saldo_pendiente: parseFloat(row[5]) || 0,
+      monto_acordado: montoAcordado,
+      total_abonado: totalAbonado,
+      saldo_pendiente: saldoCalculado,
       cotizacion_url: row[6],
       contrato_url: row[7],
-      estatus: row[8]
+      estatus: row[8],
+      tipo_factura: row[9] || "PPD", // PPD (default para pagos parciales) o PUE
+      folio_factura_global: row[10] || "",
+      total_parcialidades: parcialidades.length,
+      reps_pendientes: repsPendientes,
+      parcialidades: parcialidades
     });
   }
 
   return { success: true, procesos: procesos };
+}
+
+function obtenerParcialidadesProceso(procesoId) {
+  if (!procesoId) return { success: false, error: "Falta procesoId" };
+  const ss = getSpreadsheet();
+  const sheet = ss.getSheetByName("Parcialidades_Pagos") || ss.getSheetByName("Pagos");
+  if (!sheet) return { success: true, parcialidades: [] };
+
+  const values = sheet.getDataRange().getValues();
+  const parcialidades = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if ((row[1] || "").toString().trim() === procesoId.toString().trim()) {
+      parcialidades.push({
+        id_pago: row[0],
+        proceso_id: row[1],
+        num_parcialidad: row[2] || ("Abono " + (parcialidades.length + 1)),
+        monto_abonado: parseFloat(row[3]) || 0,
+        fecha_pago: row[4],
+        comprobante_url: row[5] || "",
+        estatus_rep: (row[6] || "").toString().toUpperCase() || "PENDIENTE",
+        rep_url: row[7] || "",
+        fecha_registro: row[9] || ""
+      });
+    }
+  }
+
+  return { success: true, parcialidades: parcialidades };
 }
 
 function obtenerProcesosConSaldo() {
@@ -219,17 +315,33 @@ function obtenerProcesosConSaldo() {
   const sheet = ss.getSheetByName("Procesos");
   if (!sheet) return { success: true, procesos: [] };
 
+  const sheetParcialidades = ss.getSheetByName("Parcialidades_Pagos") || ss.getSheetByName("Pagos");
+  const dataPagos = sheetParcialidades ? sheetParcialidades.getDataRange().getValues() : [];
+
+  const abonosPorProceso = {};
+  for (let j = 1; j < dataPagos.length; j++) {
+    const procId = (dataPagos[j][1] || "").toString().trim();
+    const abono = parseFloat(dataPagos[j][3]) || 0;
+    if (procId) abonosPorProceso[procId] = (abonosPorProceso[procId] || 0) + abono;
+  }
+
   const values = sheet.getDataRange().getValues();
   const procesos = [];
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const saldo = parseFloat(row[5]) || 0;
+    const procId = (row[0] || "").toString().trim();
+    const monto = parseFloat(row[4]) || 0;
     const estatus = (row[8] || "").toString().toUpperCase();
-    if (saldo > 0 && estatus !== "CERRADO") {
+
+    const abonos = abonosPorProceso[procId] || 0;
+    const saldo = Math.max(0, monto - abonos);
+
+    if (saldo > 0 && estatus !== "CERRADO" && estatus !== "PAGADO_TOTAL_CERRADO") {
       procesos.push({
         id: row[0],
         concepto: row[3],
+        monto_total: monto,
         saldo_pendiente: saldo
       });
     }
@@ -413,30 +525,53 @@ function procesarActualizacionProceso(data) {
 }
 
 // ---------------------------------------------------
-// 6. REGISTRAR PAGO
+// 6. REGISTRAR PARCIALIDAD / ABONO A PROCESO (PPD)
 // ---------------------------------------------------
 function procesarNuevoPago(data) {
   const ss = getSpreadsheet();
   const sheetProc = ss.getSheetByName("Procesos");
-  const sheetPagos = ss.getSheetByName("Pagos");
-  const dataProc = sheetProc.getDataRange().getValues();
+  let sheetParcialidades = ss.getSheetByName("Parcialidades_Pagos");
+  
+  if (!sheetParcialidades) {
+    // Si no existe, crear la pestaña Parcialidades_Pagos
+    sheetParcialidades = ss.insertSheet("Parcialidades_Pagos");
+    sheetParcialidades.appendRow([
+      "ID_Pago",
+      "Process_ID",
+      "Num_Parcialidad",
+      "Monto_Abonado",
+      "Fecha_Pago",
+      "Comprobante_URL",
+      "Estatus_REP",
+      "REP_URL",
+      "Notas",
+      "Fecha_Registro"
+    ]);
+  }
 
+  const dataProc = sheetProc ? sheetProc.getDataRange().getValues() : [];
   let filaProceso = -1;
-  let saldoActual = 0;
+  let montoTotalGlobal = 0;
   let urlCarpetaProceso = "";
+  let procId = data.procesoId;
 
   for (let i = 1; i < dataProc.length; i++) {
-    if (dataProc[i][0] === data.procesoId) {
+    if (dataProc[i][0] === procId) {
       filaProceso = i + 1;
-      saldoActual = parseFloat(dataProc[i][5]) || 0;
+      montoTotalGlobal = parseFloat(dataProc[i][4]) || 0;
       urlCarpetaProceso = dataProc[i][7] || dataProc[i][6] || "";
       break;
     }
   }
 
+  if (filaProceso === -1) throw new Error("Proceso de compra no encontrado: " + procId);
+
   let montoAbono = parseFloat(data.montoAbonado) || 0;
+  if (montoAbono <= 0) throw new Error("El monto abonado debe ser mayor a 0.");
+
   let idPago = "PAG-" + Math.floor(10000 + Math.random() * 90000);
 
+  // Subir Comprobante Bancario a Drive
   let urlComprobante = "";
   if (data.comprobanteFile) {
     let carpetaDestino = obtenerCarpetaDesdeUrl(urlCarpetaProceso);
@@ -447,76 +582,189 @@ function procesarNuevoPago(data) {
     }
   }
 
-  sheetPagos.appendRow([
+  const numParcialidad = data.numParcialidad || "Abono Parcial";
+
+  // Regla Estricta: Cada abono nace por defecto con Estatus_REP = "PENDIENTE"
+  sheetParcialidades.appendRow([
     idPago,
-    data.procesoId,
-    "",
+    procId,
+    numParcialidad,
     montoAbono,
-    data.fechaTransferencia,
+    data.fechaTransferencia || new Date().toISOString().split('T')[0],
     urlComprobante,
-    "PENDIENTE_COMPLEMENTO",
+    "PENDIENTE",
     "",
-    "",
+    data.notas || "",
     new Date()
   ]);
 
-  if (filaProceso > -1) {
-    let nuevoSaldo = Math.max(0, saldoActual - montoAbono);
-    sheetProc.getRange(filaProceso, 6).setValue(nuevoSaldo);
-    if (nuevoSaldo <= 0) {
-      sheetProc.getRange(filaProceso, 9).setValue("PAGADO_TOTAL");
+  // Sincronizar también con la hoja Pagos para compatibilidad legacy si existe
+  const sheetPagosLegacy = ss.getSheetByName("Pagos");
+  if (sheetPagosLegacy) {
+    sheetPagosLegacy.appendRow([
+      idPago,
+      procId,
+      numParcialidad,
+      montoAbono,
+      data.fechaTransferencia,
+      urlComprobante,
+      "PENDIENTE_COMPLEMENTO",
+      "",
+      "",
+      new Date()
+    ]);
+  }
+
+  // Recalcular saldo exacto de forma dinámica sumando todos los abonos del proceso
+  const dataPagosActualizada = sheetParcialidades.getDataRange().getValues();
+  let sumaAbonos = 0;
+  let repsPendientesCount = 0;
+
+  for (let k = 1; k < dataPagosActualizada.length; k++) {
+    if ((dataPagosActualizada[k][1] || "").toString().trim() === procId.toString().trim()) {
+      sumaAbonos += (parseFloat(dataPagosActualizada[k][3]) || 0);
+      const estREP = (dataPagosActualizada[k][6] || "").toString().toUpperCase();
+      if (estREP === "PENDIENTE" || estREP === "PENDIENTE_COMPLEMENTO" || !estREP) {
+        repsPendientesCount++;
+      }
     }
   }
 
-  return { success: true, idPago: idPago };
+  const nuevoSaldo = Math.max(0, montoTotalGlobal - sumaAbonos);
+  sheetProc.getRange(filaProceso, 6).setValue(nuevoSaldo);
+
+  // Regla de Validación Estricta: Cero tolerancia al REP faltante
+  // PROHIBIDO marcar como CERRADO / PAGADO_TOTAL si falta algún REP o si saldo > 0
+  let nuevoEstatusProceso = "PAGO_PARCIAL";
+  if (nuevoSaldo === 0) {
+    if (repsPendientesCount === 0) {
+      nuevoEstatusProceso = "PAGADO_TOTAL_CERRADO";
+    } else {
+      // Saldo en 0 pero faltan comprobantes fiscales de los abonos
+      nuevoEstatusProceso = "LIQUIDADO_FALTA_REP";
+    }
+  }
+
+  sheetProc.getRange(filaProceso, 9).setValue(nuevoEstatusProceso);
+
+  return {
+    success: true,
+    idPago: idPago,
+    procesoId: procId,
+    montoAbonado: montoAbono,
+    saldoRestante: nuevoSaldo,
+    estatusProceso: nuevoEstatusProceso,
+    repsPendientes: repsPendientesCount,
+    comprobanteUrl: urlComprobante
+  };
 }
 
 // ---------------------------------------------------
-// 7. SUBIDA DE CFDI (PORTAL)
+// 7. SUBIDA DE COMPLEMENTO DE PAGO (REP) POR PARCIALIDAD
 // ---------------------------------------------------
-function procesarSubidaCFDI(data) {
+function procesarSubidaREP(data) {
   const ss = getSpreadsheet();
-  const sheetPagos = ss.getSheetByName("Pagos");
+  const sheetParcialidades = ss.getSheetByName("Parcialidades_Pagos") || ss.getSheetByName("Pagos");
   const sheetProc = ss.getSheetByName("Procesos");
-  const dataPagos = sheetPagos.getDataRange().getValues();
 
+  if (!sheetParcialidades) throw new Error("No existe la hoja de pagos/parcialidades.");
+
+  const dataPagos = sheetParcialidades.getDataRange().getValues();
   let filaPago = -1;
-  let procesoId = "";
+  let procId = "";
+
   for (let i = 1; i < dataPagos.length; i++) {
     if (dataPagos[i][0] === data.pagoId) {
       filaPago = i + 1;
-      procesoId = dataPagos[i][1];
+      procId = (dataPagos[i][1] || "").toString().trim();
       break;
     }
   }
 
-  if (filaPago === -1) throw new Error("Pago no encontrado: " + data.pagoId);
+  if (filaPago === -1) throw new Error("Abono no encontrado: " + data.pagoId);
 
+  // Obtener carpeta de Drive del proceso
   let urlCarpetaProceso = "";
-  if (procesoId && sheetProc) {
+  let filaProceso = -1;
+  let montoTotalGlobal = 0;
+  if (procId && sheetProc) {
     const dataProc = sheetProc.getDataRange().getValues();
     for (let j = 1; j < dataProc.length; j++) {
-      if (dataProc[j][0] === procesoId) {
+      if (dataProc[j][0] === procId) {
+        filaProceso = j + 1;
+        montoTotalGlobal = parseFloat(dataProc[j][4]) || 0;
         urlCarpetaProceso = dataProc[j][7] || dataProc[j][6] || "";
         break;
       }
     }
   }
 
-  let urlXML = "";
-  if (data.xmlFile) {
+  let urlREP = "";
+  if (data.repXmlFile || data.xmlFile) {
+    const fileToUpload = data.repXmlFile || data.xmlFile;
     let carpetaDestino = obtenerCarpetaDesdeUrl(urlCarpetaProceso);
     if (carpetaDestino) {
-      urlXML = guardarArchivoDriveBlob(carpetaDestino, data.xmlFile, "4_CFDI_" + data.pagoId);
+      urlREP = guardarArchivoDriveBlob(carpetaDestino, fileToUpload, "4_REP_" + data.pagoId);
     } else {
-      urlXML = guardarArchivoDriveEnRaiz(data.xmlFile, "CFDI_" + data.pagoId);
+      urlREP = guardarArchivoDriveEnRaiz(fileToUpload, "REP_" + data.pagoId);
     }
   }
 
-  sheetPagos.getRange(filaPago, 7).setValue("COMPLETO");
-  sheetPagos.getRange(filaPago, 8).setValue(urlXML);
+  // Marcar estatus de este abono como RECIBIDO
+  sheetParcialidades.getRange(filaPago, 7).setValue("RECIBIDO");
+  sheetParcialidades.getRange(filaPago, 8).setValue(urlREP);
 
-  return { success: true };
+  // También actualizar hoja legacy Pagos si existe
+  const sheetPagosLegacy = ss.getSheetByName("Pagos");
+  if (sheetPagosLegacy) {
+    const dPL = sheetPagosLegacy.getDataRange().getValues();
+    for (let m = 1; m < dPL.length; m++) {
+      if (dPL[m][0] === data.pagoId) {
+        sheetPagosLegacy.getRange(m + 1, 7).setValue("COMPLETO");
+        sheetPagosLegacy.getRange(m + 1, 8).setValue(urlREP);
+        break;
+      }
+    }
+  }
+
+  // Verificar si con este REP se completan todos los abonos y se puede cerrar el proceso
+  let repsPendientesCount = 0;
+  let sumaAbonos = 0;
+  const dataActualizada = sheetParcialidades.getDataRange().getValues();
+
+  for (let k = 1; k < dataActualizada.length; k++) {
+    if ((dataActualizada[k][1] || "").toString().trim() === procId) {
+      sumaAbonos += (parseFloat(dataActualizada[k][3]) || 0);
+      const estREP = (dataActualizada[k][6] || "").toString().toUpperCase();
+      if (estREP === "PENDIENTE" || estREP === "PENDIENTE_COMPLEMENTO" || !estREP) {
+        repsPendientesCount++;
+      }
+    }
+  }
+
+  const saldoRestante = Math.max(0, montoTotalGlobal - sumaAbonos);
+  if (filaProceso > -1) {
+    if (saldoRestante === 0 && repsPendientesCount === 0) {
+      sheetProc.getRange(filaProceso, 9).setValue("PAGADO_TOTAL_CERRADO");
+    } else if (saldoRestante === 0 && repsPendientesCount > 0) {
+      sheetProc.getRange(filaProceso, 9).setValue("LIQUIDADO_FALTA_REP");
+    }
+  }
+
+  return {
+    success: true,
+    pagoId: data.pagoId,
+    repUrl: urlREP,
+    repsPendientesRestantes: repsPendientesCount,
+    saldoRestante: saldoRestante
+  };
+}
+
+// ---------------------------------------------------
+// 7. SUBIDA DE CFDI (PORTAL LEGACY)
+// ---------------------------------------------------
+function procesarSubidaCFDI(data) {
+  return procesarSubidaREP(data);
 }
 
 // ---------------------------------------------------
@@ -618,6 +866,7 @@ function procesarEmisionOrdenCompra(data) {
 
   // Si se solicitó envío por correo electrónico al proveedor
   let correoEnviado = false;
+  let errorCorreo = null;
   if (data.proveedorCorreo && blobOC) {
     try {
       MailApp.sendEmail({
@@ -631,6 +880,7 @@ function procesarEmisionOrdenCompra(data) {
       });
       correoEnviado = true;
     } catch (errMail) {
+      errorCorreo = errMail.toString();
       Logger.log("Aviso: No se pudo enviar el correo automático: " + errMail);
     }
   }
@@ -641,7 +891,8 @@ function procesarEmisionOrdenCompra(data) {
     folioOC: folioOC,
     carpetaUrl: carpetaProceso.getUrl(),
     pdfUrl: urlPDF_OC,
-    correoEnviado: correoEnviado
+    correoEnviado: correoEnviado,
+    errorCorreo: errorCorreo
   };
 }
 

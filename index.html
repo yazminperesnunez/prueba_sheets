@@ -134,16 +134,20 @@
             </div>
           </div>
 
-          <!-- 5. Facturas Faltantes [NUEVO] -->
+          <!-- 5. Complementos Faltantes (REP) [KPI ESTRELLA FISCAL] -->
           <div class="col-xl col-md-6 col-sm-12">
-            <div class="card h-100 mb-0 shadow-sm border-danger">
+            <div class="card h-100 mb-0 shadow-sm border-danger position-relative" id="cardKpiComplementos">
               <div class="card-body p-3 d-flex align-items-center">
-                <div class="kpi-icon bg-dark text-white">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                <div class="kpi-icon bg-danger text-white">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v2m0 4v.01"></path><path d="M5 19h14a2 2 0 0 0 1.84 -2.75l-7.1 -12.25a2 2 0 0 0 -3.5 0l-7.1 12.25a2 2 0 0 0 1.75 2.75"></path></svg>
                 </div>
-                <div>
-                  <div class="kpi-value fs-5 text-danger" id="kpiFacturasFaltantes">0</div>
-                  <div class="kpi-label">Facturas Faltantes</div>
+                <div class="flex-grow-1">
+                  <div class="d-flex align-items-center justify-content-between">
+                    <div class="kpi-value fs-5 text-danger fw-bold" id="kpiComplementosFaltantes">0</div>
+                    <span class="badge bg-danger-subtle text-danger border border-danger small" id="kpiBadgeRepAlerta" style="display: none;">Alerta Fiscal</span>
+                  </div>
+                  <div class="kpi-label fw-semibold">Complementos Faltantes (REP)</div>
+                  <small class="text-muted" style="font-size: 11px;">Abonos sin comprobante SAT</small>
                 </div>
               </div>
             </div>
@@ -311,19 +315,27 @@
             </div>
           </div>
 
-          <!-- Resumen del Proceso -->
-          <div class="row g-3 mb-4 bg-light p-3 rounded border">
-            <div class="col-md-6">
+          <!-- Resumen Jerárquico del Proceso (Factura Global PPD vs Abonos) -->
+          <div class="row g-3 mb-4 bg-light p-3 rounded border align-items-center">
+            <div class="col-md-5">
               <span class="text-muted small d-block">Concepto / Insumo:</span>
               <strong class="text-dark" id="modal-detalle-concepto">-</strong>
+              <div class="mt-1">
+                <span class="badge bg-primary-subtle text-primary border border-primary small" id="modal-detalle-tipo-factura">Factura Global: PPD</span>
+                <span class="badge bg-secondary-subtle text-secondary border small ms-1" id="modal-detalle-reps-badge">0 REPs Pendientes</span>
+              </div>
             </div>
-            <div class="col-md-3">
-              <span class="text-muted small d-block">Monto Acordado:</span>
-              <strong class="text-dark font-monospace" id="modal-detalle-monto">$0.00</strong>
+            <div class="col-md-2 text-center">
+              <span class="text-muted small d-block">Monto Global</span>
+              <strong class="text-dark font-monospace fs-6" id="modal-detalle-monto">$0.00</strong>
             </div>
-            <div class="col-md-3">
-              <span class="text-muted small d-block">Saldo Pendiente:</span>
-              <strong class="text-danger font-monospace" id="modal-detalle-saldo">$0.00</strong>
+            <div class="col-md-2 text-center">
+              <span class="text-muted small d-block">Total Abonado</span>
+              <strong class="text-success font-monospace fs-6" id="modal-detalle-abonado">$0.00</strong>
+            </div>
+            <div class="col-md-3 text-end">
+              <span class="text-muted small d-block">Saldo Pendiente Real:</span>
+              <strong class="text-danger font-monospace fs-5" id="modal-detalle-saldo">$0.00</strong>
             </div>
           </div>
 
@@ -371,16 +383,16 @@
             <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
               <h6 class="m-0 fw-bold small text-warning d-flex align-items-center gap-1">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path></svg>
-                2. Comprobante Fiscal del Proveedor (Facturación SAT)
+                2. Factura Global SAT (PPD / Techo Presupuestal)
               </h6>
               <span class="badge bg-warning-subtle text-warning border border-warning" id="status-factura-badge">Falta Factura</span>
             </div>
             <div class="card-body p-3">
               <form id="form-subir-factura-modal" onsubmit="guardarFacturaDesdeModalDetalle(event)">
-                <p class="text-muted small mb-2">Adjunta el archivo XML y PDF para validar montos contra la Orden de Compra aprobada.</p>
+                <p class="text-muted small mb-2">Adjunta la Factura Global que ampara el total del proceso de compra.</p>
                 <div class="row g-2 mb-2">
                   <div class="col-md-6">
-                    <label class="form-label small fw-semibold">Archivo XML Fiscal:</label>
+                    <label class="form-label small fw-semibold">Archivo XML Fiscal Global:</label>
                     <input type="file" id="modal-factura-xml" class="form-control form-control-sm" accept=".xml" required>
                   </div>
                   <div class="col-md-6">
@@ -389,42 +401,81 @@
                   </div>
                 </div>
                 <div class="d-flex justify-content-end">
-                  <button type="submit" class="btn btn-sm btn-warning text-dark fw-semibold">Validar y Cargar Factura</button>
+                  <button type="submit" class="btn btn-sm btn-warning text-dark fw-semibold">Validar y Cargar Factura Global</button>
                 </div>
               </form>
             </div>
           </div>
 
-          <!-- SECCIÓN DINÁMICA 3: PROGRAMACIÓN Y EJECUCIÓN DEL PAGO (TESORERÍA) -->
-          <div class="card border" id="card-accion-pago">
+          <!-- SECCIÓN DINÁMICA 3: HISTORIAL DE PARCIALIDADES Y COMPLEMENTOS DE PAGO (REP) -->
+          <div class="card border mb-3" id="card-accion-pago">
             <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
               <h6 class="m-0 fw-bold small text-success d-flex align-items-center gap-1">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
-                3. Programación y Ejecución de Pago (Tesorería)
+                3. Tabla de Amortización y Parcialidades (REP Obligatorio)
               </h6>
-              <span class="badge bg-light text-secondary border" id="status-pago-badge">Pendiente de Pago</span>
+              <span class="badge bg-light text-secondary border" id="status-pago-badge">Pendiente de Liquidar</span>
             </div>
             <div class="card-body p-3">
-              <form id="form-registrar-pago-modal" onsubmit="guardarPagoDesdeModalDetalle(event)">
-                <div class="row g-2 mb-2">
-                  <div class="col-md-4">
-                    <label class="form-label small fw-semibold">Monto a Transferir (MXN):</label>
-                    <input type="number" id="modal-pago-monto" class="form-control form-control-sm font-monospace fw-bold" step="0.01" required>
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label small fw-semibold">Fecha de Pago / Programada:</label>
-                    <input type="date" id="modal-pago-fecha" class="form-control form-control-sm" required>
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label small fw-semibold">Comprobante de Transferencia (PDF/Foto):</label>
-                    <input type="file" id="modal-pago-comprobante" class="form-control form-control-sm" accept=".pdf,image/*">
-                  </div>
+              
+              <!-- Subtabla de Historial de Abonos / Parcialidades -->
+              <div class="table-responsive mb-3 border rounded">
+                <table class="table table-sm table-hover align-middle mb-0">
+                  <thead class="table-light small">
+                    <tr>
+                      <th style="width: 12%;"># Parcialidad</th>
+                      <th style="width: 14%;">Fecha Pago</th>
+                      <th style="width: 16%;" class="text-end">Monto Abonado</th>
+                      <th style="width: 18%;" class="text-center">Comprobante Bancario</th>
+                      <th style="width: 20%;" class="text-center">Estatus REP (SAT)</th>
+                      <th style="width: 20%;" class="text-center">Acción Fiscal</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tablaParcialidadesModalTbody">
+                    <tr><td colspan="6" class="text-center text-muted py-3 small">Sin abonos registrados aún.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Formulario de Registro de Nueva Parcialidad -->
+              <div class="bg-light p-3 rounded border">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <span class="fw-bold small text-secondary">+ Registrar Nueva Parcialidad / Abono</span>
+                  <small class="text-muted">Se generará estatus automático <strong>REP Pendiente</strong></small>
                 </div>
-                <div class="d-flex justify-content-end gap-2">
-                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="programarPagoUrgente()">Marcar como Programado / Por Pagar</button>
-                  <button type="submit" class="btn btn-sm btn-success fw-bold">Liquidar y Cerrar Proceso</button>
-                </div>
-              </form>
+                <form id="form-registrar-pago-modal" onsubmit="guardarPagoDesdeModalDetalle(event)">
+                  <div class="row g-2 mb-2">
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Número de Parcialidad *</label>
+                      <input type="text" id="modal-pago-num-parcialidad" class="form-control form-control-sm" placeholder="Ej. Abono 1 de 3" required>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Monto a Abonar (MXN) *</label>
+                      <input type="number" id="modal-pago-monto" class="form-control form-control-sm font-monospace fw-bold" step="0.01" required>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Fecha de Transferencia *</label>
+                      <input type="date" id="modal-pago-fecha" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="form-label small fw-semibold">Comprobante Bancario *</label>
+                      <input type="file" id="modal-pago-comprobante" class="form-control form-control-sm" accept=".pdf,image/*" required>
+                    </div>
+                  </div>
+                  <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+                    <div class="small text-danger" id="alerta-cierre-proceso-info">
+                      <!-- Mensaje dinámico de validación -->
+                    </div>
+                    <div class="d-flex gap-2">
+                      <button type="submit" class="btn btn-sm btn-primary">Registrar Parcialidad</button>
+                      <button type="button" class="btn btn-sm btn-success fw-bold" id="btn-cerrar-proceso-modal" onclick="intentarCierreFinalProceso()">
+                        ✓ Concluir y Cerrar Proceso
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
             </div>
           </div>
 
@@ -442,6 +493,50 @@
           </div>
         </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL PARA SUBIR COMPLEMENTO DE PAGO (REP) POR PARCIALIDAD -->
+  <div class="modal fade" id="modalSubirREPModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow">
+        <div class="modal-header bg-light py-3">
+          <h5 class="modal-title fw-bold text-primary d-flex align-items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+            Subir Complemento de Pago (REP - SAT)
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <form id="form-subir-rep-parcialidad" onsubmit="guardarREPParcialidadDesdeModal(event)">
+          <div class="modal-body p-4">
+            <input type="hidden" id="modal-rep-pago-id">
+            <input type="hidden" id="modal-rep-proceso-id">
+            
+            <div class="alert alert-info py-2 small mb-3">
+              Carga el comprobante fiscal (CFDI con complemento para recepción de pagos) expedido por el proveedor para este abono específico.
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Parcialidad / Abono:</label>
+              <input type="text" id="modal-rep-num-parcialidad" class="form-control form-control-sm bg-light fw-bold" readonly>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Archivo XML del REP (Obligatorio) *</label>
+              <input type="file" id="modal-rep-xml" class="form-control form-control-sm" accept=".xml" required>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Archivo PDF del REP (Opcional)</label>
+              <input type="file" id="modal-rep-pdf" class="form-control form-control-sm" accept=".pdf">
+            </div>
+          </div>
+          <div class="modal-footer bg-light py-2">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn btn-primary btn-sm px-3 fw-semibold">Validar y Guardar REP</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

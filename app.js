@@ -1,7 +1,7 @@
 // version_sheets_drive/app.js
 // Conexión directa a Google Sheets y Google Drive vía Google Apps Script
 
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxOvGsNq0O92P5mQZ9oaAPhBbpDAdniG5cuo2qIRUA7xaH-36uhhTHyhnkOr9AxdHKO/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwgATjxdanWGLhtBVVsVUF3tAtyBVwtyufqRsdHPH-7QpydFCGfa93xVCdi5UwicH4/exec";
 
 // ==========================================
 // MÓDULO: DASHBOARD (index.html)
@@ -19,7 +19,7 @@ async function cargarDashboard() {
   document.getElementById("kpiTotalPagado").innerText = "...";
   document.getElementById("kpiSaldoPendiente").innerText = "...";
   if (document.getElementById("kpiProximos7Dias")) document.getElementById("kpiProximos7Dias").innerText = "...";
-  if (document.getElementById("kpiFacturasFaltantes")) document.getElementById("kpiFacturasFaltantes").innerText = "...";
+  if (document.getElementById("kpiComplementosFaltantes")) document.getElementById("kpiComplementosFaltantes").innerText = "...";
 
   try {
     const respuesta = await enviarPeticionAppsScript({ accion: "obtenerMetricas" });
@@ -31,8 +31,17 @@ async function cargarDashboard() {
       if (document.getElementById("kpiProximos7Dias")) {
         document.getElementById("kpiProximos7Dias").innerText = formatoMoneda(respuesta.proximos7Dias || 0);
       }
-      if (document.getElementById("kpiFacturasFaltantes")) {
-        document.getElementById("kpiFacturasFaltantes").innerText = respuesta.facturasFaltantes || 0;
+
+      // KPI Estrella: Complementos Faltantes (REP)
+      const elReps = document.getElementById("kpiComplementosFaltantes");
+      const badgeReps = document.getElementById("kpiBadgeRepAlerta");
+      if (elReps) {
+        const countReps = respuesta.complementosFaltantes || 0;
+        elReps.innerText = countReps;
+        if (badgeReps) {
+          badgeReps.style.display = countReps > 0 ? "inline-block" : "none";
+          badgeReps.innerText = `${countReps} Pendiente${countReps > 1 ? 's' : ''}`;
+        }
       }
     }
   } catch (error) {
@@ -58,7 +67,7 @@ async function cargarProcesosActivos() {
 
     procesosDashboardCache = res.procesos || [];
 
-    // Calcular métricas locales complementarias (Próximos 7 días y Facturas Faltantes) a partir de los datos
+    // Calcular KPIs complementarios desde cache si aún están pendientes
     actualizarMetricasComplementariasDesdeCache();
 
     // Actualizar contadores de las píldoras de filtrado
@@ -78,7 +87,7 @@ async function cargarProcesosActivos() {
  */
 function actualizarMetricasComplementariasDesdeCache() {
   let porPagar7Dias = 0;
-  let facturasFaltantesCount = 0;
+  let complementosFaltantesCount = 0;
 
   const hoy = new Date();
   const en7Dias = new Date();
@@ -88,13 +97,19 @@ function actualizarMetricasComplementariasDesdeCache() {
     const estatus = (p.estatus || "").toUpperCase();
     const saldo = parseFloat(p.saldo_pendiente) || 0;
 
-    // Facturas faltantes: procesos con orden emitida, en progreso o contratados sin documento/CFDI
-    if (estatus.includes("FALTA_FACTURA") || (saldo > 0 && estatus !== "EN_COTIZACION" && !p.cfdi_url && !p.factura_url)) {
-      facturasFaltantesCount++;
+    // Conteo estricto de REPs pendientes a través de las parcialidades del proceso
+    if (p.reps_pendientes !== undefined) {
+      complementosFaltantesCount += (parseInt(p.reps_pendientes) || 0);
+    } else if (p.parcialidades && Array.isArray(p.parcialidades)) {
+      p.parcialidades.forEach(ab => {
+        if (ab.estatus_rep === "PENDIENTE" || ab.estatus_rep === "PENDIENTE_COMPLEMENTO" || !ab.estatus_rep) {
+          complementosFaltantesCount++;
+        }
+      });
     }
 
     // Por pagar en próximos 7 días: si tiene saldo y fecha próxima o estatus próximo a vencer
-    if (estatus.includes("VENCER") || (saldo > 0 && (estatus.includes("TRANSITO") || estatus.includes("CONTRATADO")))) {
+    if (estatus.includes("VENCER") || (saldo > 0 && (estatus.includes("TRANSITO") || estatus.includes("CONTRATADO") || estatus.includes("PAGO_PARCIAL")))) {
       porPagar7Dias += (saldo * 0.5); // proyección de anticipos/compromisos inmediatos
     }
   });
@@ -104,9 +119,14 @@ function actualizarMetricasComplementariasDesdeCache() {
     el7.innerText = formatoMoneda(porPagar7Dias);
   }
 
-  const elFac = document.getElementById("kpiFacturasFaltantes");
-  if (elFac && elFac.innerText === "...") {
-    elFac.innerText = facturasFaltantesCount;
+  const elReps = document.getElementById("kpiComplementosFaltantes");
+  const badgeReps = document.getElementById("kpiBadgeRepAlerta");
+  if (elReps && elReps.innerText === "...") {
+    elReps.innerText = complementosFaltantesCount;
+    if (badgeReps) {
+      badgeReps.style.display = complementosFaltantesCount > 0 ? "inline-block" : "none";
+      badgeReps.innerText = `${complementosFaltantesCount} Pendiente${complementosFaltantesCount > 1 ? 's' : ''}`;
+    }
   }
 }
 
@@ -151,9 +171,19 @@ function obtenerBadgeEstatusColor(p) {
   const estatus = (p.estatus || "").toUpperCase();
   const saldo = parseFloat(p.saldo_pendiente) || 0;
 
-  // 5. Pagado y Cerrado (Verde)
-  if (saldo === 0 || estatus === "PAGADO_TOTAL" || estatus === "PAGADO" || estatus === "CERRADO") {
+  // 5b. Liquidado pero con REPs Pendientes (Alerta Fiscal Roja)
+  if (estatus.includes("FALTA_REP") || (saldo === 0 && p.reps_pendientes > 0)) {
+    return `<span class="badge bg-danger text-white px-2 py-1"><span class="me-1">⚠</span> Liquidado (Falta REP)</span>`;
+  }
+
+  // 5. Pagado y Cerrado al 100% (Verde)
+  if (estatus === "PAGADO_TOTAL_CERRADO" || (saldo === 0 && (!p.reps_pendientes || p.reps_pendientes === 0))) {
     return `<span class="badge bg-success text-white px-2 py-1"><span class="me-1">✓</span> Pagado y Cerrado</span>`;
+  }
+
+  // 4b. Pago Parcial / Amortización en curso
+  if (estatus.includes("PAGO_PARCIAL") || (p.total_abonado > 0 && saldo > 0)) {
+    return `<span class="badge bg-info text-dark px-2 py-1 border border-info"><span class="me-1">💳</span> Parcialidad (${formatoMoneda(saldo)} pend.)</span>`;
   }
 
   // 4. Por Pagar (Próximo) (Naranja)
@@ -164,6 +194,11 @@ function obtenerBadgeEstatusColor(p) {
   // 3. Falta Factura (Amarillo / Alerta)
   if (estatus.includes("FALTA_FACTURA") || (!p.cfdi_url && !p.factura_url && (estatus.includes("ENTREGADO") || estatus.includes("ALMACEN")))) {
     return `<span class="badge bg-warning text-dark px-2 py-1"><span class="me-1">!</span> Falta Factura</span>`;
+  }
+
+  // 2b. Entrega Parcial / Incompleta (Amarillo advertencia)
+  if (estatus.includes("PARCIAL")) {
+    return `<span class="badge bg-warning text-dark px-2 py-1 border border-warning fw-semibold"><span class="me-1">⚠</span> Entrega Parcial</span>`;
   }
 
   // 2. Entregado / En Almacén (Azul)
@@ -438,9 +473,11 @@ async function guardarFacturaDesdeDashboard(event) {
 // =============================================================================
 // MÓDULO: MODAL DETALLE Y LÍNEA DE TIEMPO DEL PROCESO (POST-OC)
 // =============================================================================
+// MÓDULO: MODAL DETALLE Y LÍNEA DE TIEMPO DEL PROCESO (POST-OC)
+// =============================================================================
 let procesoSeleccionadoDetalle = null;
 
-function abrirModalDetalleProceso(idProceso) {
+async function abrirModalDetalleProceso(idProceso) {
   const modalEl = document.getElementById("modalDetalleProceso");
   if (!modalEl) return;
 
@@ -452,11 +489,15 @@ function abrirModalDetalleProceso(idProceso) {
 
   procesoSeleccionadoDetalle = proceso;
 
-  // Llenar datos de cabecera y resumen
+  // Llenar datos de cabecera y resumen jerárquico
   document.getElementById("modal-detalle-id").innerText = proceso.id;
   document.getElementById("modal-detalle-subtitulo").innerText = `Proveedor: ${proceso.razon_social || proceso.proveedor_id || 'Adjudicado'}`;
   document.getElementById("modal-detalle-concepto").innerText = proceso.concepto || "Sin concepto";
   document.getElementById("modal-detalle-monto").innerText = formatoMoneda(proceso.monto_acordado || 0);
+
+  const elAbonado = document.getElementById("modal-detalle-abonado");
+  if (elAbonado) elAbonado.innerText = formatoMoneda(proceso.total_abonado || 0);
+
   document.getElementById("modal-detalle-saldo").innerText = formatoMoneda(proceso.saldo_pendiente || 0);
   document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(proceso);
 
@@ -467,14 +508,140 @@ function abrirModalDetalleProceso(idProceso) {
   const inputPagoFecha = document.getElementById("modal-pago-fecha");
   if (inputPagoFecha) inputPagoFecha.value = new Date().toISOString().split('T')[0];
 
+  const inputNumParc = document.getElementById("modal-pago-num-parcialidad");
+  if (inputNumParc) {
+    const sigNum = (proceso.parcialidades ? proceso.parcialidades.length : 0) + 1;
+    inputNumParc.value = `Abono ${sigNum}`;
+  }
+
   const inputRecepFecha = document.getElementById("recepcion-fecha");
   if (inputRecepFecha) inputRecepFecha.value = new Date().toISOString().split('T')[0];
 
   // Actualizar la línea de tiempo visual del stepper
   actualizarVisualStepperModal(proceso);
 
+  // Renderizar de inmediato las parcialidades en cache y consultar frescas en segundo plano
+  renderizarSubtablaParcialidades(proceso.parcialidades || []);
+  cargarParcialidadesRemotas(proceso.id);
+
   const modal = new bootstrap.Modal(modalEl);
   modal.show();
+}
+
+/**
+ * Consulta las parcialidades registradas en Google Sheets para el proceso actual
+ */
+async function cargarParcialidadesRemotas(procesoId) {
+  try {
+    const res = await enviarPeticionAppsScript({
+      accion: "obtenerParcialidadesProceso",
+      procesoId: procesoId
+    });
+
+    if (res && res.success && Array.isArray(res.parcialidades)) {
+      if (procesoSeleccionadoDetalle && procesoSeleccionadoDetalle.id === procesoId) {
+        procesoSeleccionadoDetalle.parcialidades = res.parcialidades;
+
+        // Recalcular saldo dinámico
+        let sum = 0;
+        let repsPend = 0;
+        res.parcialidades.forEach(ab => {
+          sum += (parseFloat(ab.monto_abonado) || 0);
+          if (ab.estatus_rep === "PENDIENTE" || ab.estatus_rep === "PENDIENTE_COMPLEMENTO" || !ab.estatus_rep) {
+            repsPend++;
+          }
+        });
+        procesoSeleccionadoDetalle.total_abonado = sum;
+        procesoSeleccionadoDetalle.saldo_pendiente = Math.max(0, (procesoSeleccionadoDetalle.monto_acordado || 0) - sum);
+        procesoSeleccionadoDetalle.reps_pendientes = repsPend;
+
+        const elAbonado = document.getElementById("modal-detalle-abonado");
+        if (elAbonado) elAbonado.innerText = formatoMoneda(sum);
+        document.getElementById("modal-detalle-saldo").innerText = formatoMoneda(procesoSeleccionadoDetalle.saldo_pendiente);
+
+        renderizarSubtablaParcialidades(res.parcialidades);
+        actualizarVisualStepperModal(procesoSeleccionadoDetalle);
+      }
+    }
+  } catch (err) {
+    console.warn("Aviso consultando parcialidades:", err);
+  }
+}
+
+/**
+ * Renderiza la subtabla de amortización con sus estatus de Complemento de Pago (REP)
+ */
+function renderizarSubtablaParcialidades(parcialidades) {
+  const tbody = document.getElementById("tablaParcialidadesModalTbody");
+  const badgeReps = document.getElementById("modal-detalle-reps-badge");
+  const alertaCierre = document.getElementById("alerta-cierre-proceso-info");
+  const btnCerrar = document.getElementById("btn-cerrar-proceso-modal");
+
+  if (!tbody) return;
+
+  if (!parcialidades || parcialidades.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3 small">Sin abonos registrados aún. Realiza el primer abono abajo.</td></tr>';
+    if (badgeReps) badgeReps.innerText = "0 REPs Pendientes";
+    if (alertaCierre) alertaCierre.innerHTML = "⚠ Pendiente de cubrir el saldo global.";
+    if (btnCerrar) {
+      btnCerrar.disabled = true;
+      btnCerrar.title = "Se requiere haber cubierto el 100% de la compra y contar con todos los complementos REP.";
+    }
+    return;
+  }
+
+  let repsPendientes = 0;
+  let html = "";
+
+  parcialidades.forEach((ab, idx) => {
+    const esPendiente = ab.estatus_rep === "PENDIENTE" || ab.estatus_rep === "PENDIENTE_COMPLEMENTO" || !ab.estatus_rep;
+    if (esPendiente) repsPendientes++;
+
+    const badgeREP = esPendiente
+      ? '<span class="badge bg-danger-subtle text-danger border border-danger fw-bold">⚠ REP Pendiente</span>'
+      : '<span class="badge bg-success-subtle text-success border border-success fw-bold">✓ REP Recibido</span>';
+
+    const btnComprobante = ab.comprobante_url
+      ? `<a href="${ab.comprobante_url}" target="_blank" class="btn btn-xs btn-outline-secondary py-0 px-2" style="font-size: 11px;">📄 Ficha</a>`
+      : '<span class="text-muted small">N/D</span>';
+
+    const btnAccionREP = esPendiente
+      ? `<button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 11px;" onclick="abrirModalSubirREP('${ab.id_pago}', '${ab.num_parcialidad || (idx + 1)}')">📤 Subir REP</button>`
+      : (ab.rep_url ? `<a href="${ab.rep_url}" target="_blank" class="btn btn-xs btn-outline-success py-0 px-2" style="font-size: 11px;">✓ Ver XML</a>` : '<span class="text-success small">Recibido</span>');
+
+    html += `
+      <tr>
+        <td class="font-monospace fw-bold text-dark small">${ab.num_parcialidad || `Abono ${idx + 1}`}</td>
+        <td class="small text-muted">${ab.fecha_pago || 'Hoy'}</td>
+        <td class="text-end font-monospace fw-bold text-dark">${formatoMoneda(ab.monto_abonado || 0)}</td>
+        <td class="text-center">${btnComprobante}</td>
+        <td class="text-center">${badgeREP}</td>
+        <td class="text-center">${btnAccionREP}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  if (badgeReps) {
+    badgeReps.className = repsPendientes > 0 ? "badge bg-danger text-white border small ms-1" : "badge bg-success text-white border small ms-1";
+    badgeReps.innerText = repsPendientes > 0 ? `${repsPendientes} REP${repsPendientes > 1 ? 's' : ''} Faltante${repsPendientes > 1 ? 's' : ''}` : "✓ Todos los REPs al día";
+  }
+
+  // Validación de Cierre Estricto
+  const saldoActual = procesoSeleccionadoDetalle ? (procesoSeleccionadoDetalle.saldo_pendiente || 0) : 1;
+  if (alertaCierre && btnCerrar) {
+    if (saldoActual > 0) {
+      alertaCierre.innerHTML = `<span>⚠ Saldo restante por liquidar: <strong>${formatoMoneda(saldoActual)}</strong></span>`;
+      btnCerrar.disabled = true;
+    } else if (repsPendientes > 0) {
+      alertaCierre.innerHTML = `<span class="text-danger fw-bold">⛔ Bloqueo Fiscal: Tienes ${repsPendientes} REP(s) pendiente(s). Sube los complementos del SAT para poder cerrar.</span>`;
+      btnCerrar.disabled = true;
+    } else {
+      alertaCierre.innerHTML = `<span class="text-success fw-bold">✓ Saldo liquidado y 100% de complementos fiscales recibidos. Listo para cerrar.</span>`;
+      btnCerrar.disabled = false;
+    }
+  }
 }
 
 /**
@@ -488,6 +655,7 @@ function abrirModalDetalleProceso(idProceso) {
 function actualizarVisualStepperModal(p) {
   const estatus = (p.estatus || "").toUpperCase();
   const saldo = parseFloat(p.saldo_pendiente) || 0;
+  const repsPendientes = parseInt(p.reps_pendientes) || 0;
 
   const s1 = document.getElementById("step-post-oc");
   const s2 = document.getElementById("step-post-entrega");
@@ -504,15 +672,23 @@ function actualizarVisualStepperModal(p) {
   if (s1) s1.className = "p-2 rounded border bg-primary text-white shadow-sm";
 
   // Determinar en qué fase está
-  const esEntregado = estatus.includes("ENTREGADO") || estatus.includes("ALMACEN") || estatus.includes("FACTURA") || estatus.includes("PAGAR") || estatus.includes("PAGADO");
+  const esParcial = estatus.includes("PARCIAL");
+  const esEntregado = estatus.includes("ENTREGADO") || estatus.includes("ALMACEN") || estatus.includes("FACTURA") || estatus.includes("PAGAR") || estatus.includes("PAGADO") || esParcial;
   const tieneFactura = p.cfdi_url || p.factura_url || estatus.includes("POR_PAGAR") || estatus.includes("PAGADO");
-  const esPorPagar = (saldo > 0 && tieneFactura) || estatus.includes("POR_PAGAR") || estatus.includes("VENCER");
-  const esPagado = saldo === 0 || estatus.includes("PAGADO") || estatus === "CERRADO";
+  const esPorPagar = (saldo > 0 && tieneFactura) || estatus.includes("POR_PAGAR") || estatus.includes("VENCER") || estatus.includes("PAGO_PARCIAL");
+  const esPagadoCerrado = saldo === 0 && repsPendientes === 0 && (estatus.includes("PAGADO_TOTAL_CERRADO") || estatus === "CERRADO");
 
   if (esEntregado && s2) {
     s2.className = "p-2 rounded border bg-primary text-white shadow-sm";
-    document.getElementById("status-entrega-badge").innerText = "✓ Entregado en Almacén";
-    document.getElementById("status-entrega-badge").className = "badge bg-success-subtle text-success border border-success";
+    if (esParcial) {
+      document.getElementById("status-entrega-badge").innerText = "⚠ Entrega Parcial (Incompleta)";
+      document.getElementById("status-entrega-badge").className = "badge bg-warning-subtle text-warning border border-warning fw-bold";
+      s2.className = "p-2 rounded border text-dark shadow-sm";
+      s2.style.backgroundColor = "#ffc107";
+    } else {
+      document.getElementById("status-entrega-badge").innerText = "✓ Entregado en Almacén";
+      document.getElementById("status-entrega-badge").className = "badge bg-success-subtle text-success border border-success";
+    }
   } else {
     document.getElementById("status-entrega-badge").innerText = "Pendiente de Llegada";
     document.getElementById("status-entrega-badge").className = "badge bg-light text-secondary border";
@@ -528,21 +704,21 @@ function actualizarVisualStepperModal(p) {
     document.getElementById("status-factura-badge").className = "badge bg-warning-subtle text-warning border border-warning";
   }
 
-  if (esPorPagar && !esPagado && s4) {
+  if (esPorPagar && !esPagadoCerrado && s4) {
     s4.className = "p-2 rounded border text-white shadow-sm";
     s4.style.backgroundColor = "#fd7e14";
-    document.getElementById("status-pago-badge").innerText = "⏱ Programado para Pago";
-    document.getElementById("status-pago-badge").className = "badge bg-warning-subtle text-warning border border-warning";
+    document.getElementById("status-pago-badge").innerText = saldo > 0 ? `⏱ Saldo por Amortizar: ${formatoMoneda(saldo)}` : "⚠ Liquidado pero con REPs Pendientes";
+    document.getElementById("status-pago-badge").className = saldo > 0 ? "badge bg-warning-subtle text-warning border border-warning" : "badge bg-danger-subtle text-danger border border-danger";
   }
 
-  if (esPagado && s5) {
+  if (esPagadoCerrado && s5) {
     [s1, s2, s3, s4, s5].forEach(s => {
       if (s) {
         s.className = "p-2 rounded border bg-success text-white shadow-sm";
         s.style.backgroundColor = "";
       }
     });
-    document.getElementById("status-pago-badge").innerText = "✓ Pagado y Cerrado";
+    document.getElementById("status-pago-badge").innerText = "✓ Pagado y Cerrado al 100%";
     document.getElementById("status-pago-badge").className = "badge bg-success-subtle text-success border border-success";
   }
 }
@@ -671,19 +847,20 @@ async function programarPagoUrgente() {
 }
 
 /**
- * 3. Tesorería: Registrar pago, adjuntar comprobante y cerrar proceso
+ * 3. Tesorería: Registrar nueva parcialidad / abono (Modelo PPD)
  */
 async function guardarPagoDesdeModalDetalle(event) {
   event.preventDefault();
   if (!procesoSeleccionadoDetalle) return;
 
+  const numParcialidad = document.getElementById("modal-pago-num-parcialidad").value.trim() || "Abono Parcial";
   const monto = document.getElementById("modal-pago-monto").value;
   const fecha = document.getElementById("modal-pago-fecha").value;
   const compFile = document.getElementById("modal-pago-comprobante").files[0];
 
   const btn = event.target.querySelector('button[type="submit"]');
   btn.disabled = true;
-  btn.innerText = "Aplicando pago y cerrando...";
+  btn.innerText = "Registrando parcialidad...";
 
   try {
     let compData = compFile ? await archivoABase64(compFile) : null;
@@ -691,6 +868,7 @@ async function guardarPagoDesdeModalDetalle(event) {
     const payload = {
       accion: "registrarPago",
       procesoId: procesoSeleccionadoDetalle.id,
+      numParcialidad: numParcialidad,
       montoAbonado: monto,
       fechaTransferencia: fecha,
       comprobanteFile: compData
@@ -699,24 +877,134 @@ async function guardarPagoDesdeModalDetalle(event) {
     const res = await enviarPeticionAppsScript(payload);
 
     if (res && res.success) {
-      alert(`🎉 ¡Pago registrado con éxito!\nComprobante bancario vinculado. Proceso liquidado.`);
-      procesoSeleccionadoDetalle.saldo_pendiente = Math.max(0, (procesoSeleccionadoDetalle.saldo_pendiente || 0) - parseFloat(monto));
-      if (procesoSeleccionadoDetalle.saldo_pendiente === 0) {
-        procesoSeleccionadoDetalle.estatus = "PAGADO_TOTAL";
-      }
-      document.getElementById("modal-detalle-saldo").innerText = formatoMoneda(procesoSeleccionadoDetalle.saldo_pendiente);
-      document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(procesoSeleccionadoDetalle);
-      actualizarVisualStepperModal(procesoSeleccionadoDetalle);
+      alert(`🎉 ¡Abono registrado con éxito!\n\nID Pago: ${res.idPago}\nParcialidad: ${numParcialidad}\nMonto: ${formatoMoneda(parseFloat(monto))}\nEstatus REP: PENDIENTE\nSaldo Restante: ${formatoMoneda(res.saldoRestante)}`);
+
+      // Limpiar formulario de abono
+      event.target.reset();
+      document.getElementById("modal-pago-fecha").value = new Date().toISOString().split('T')[0];
+
+      // Recargar parcialidades y actualizar vista
+      await cargarParcialidadesRemotas(procesoSeleccionadoDetalle.id);
       cargarDashboard();
     } else {
-      throw new Error(res.error || "No se pudo registrar el pago.");
+      throw new Error(res.error || "No se pudo registrar el abono.");
     }
   } catch (err) {
     console.error(err);
-    alert("Error registrando pago: " + err.message);
+    alert("Error registrando parcialidad: " + err.message);
   } finally {
     btn.disabled = false;
-    btn.innerText = "Liquidar y Cerrar Proceso";
+    btn.innerText = "Registrar Parcialidad";
+  }
+}
+
+/**
+ * Abre el modal para subir el Complemento de Pago (REP - SAT) de un abono específico
+ */
+function abrirModalSubirREP(idPago, numParcialidad) {
+  const modalEl = document.getElementById("modalSubirREPModal");
+  if (!modalEl || !procesoSeleccionadoDetalle) return;
+
+  document.getElementById("modal-rep-pago-id").value = idPago;
+  document.getElementById("modal-rep-proceso-id").value = procesoSeleccionadoDetalle.id;
+  document.getElementById("modal-rep-num-parcialidad").value = `${numParcialidad} (Ref: ${idPago})`;
+
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+}
+
+/**
+ * Procesa la carga del XML/PDF del REP para un abono
+ */
+async function guardarREPParcialidadDesdeModal(event) {
+  event.preventDefault();
+  const idPago = document.getElementById("modal-rep-pago-id").value;
+  const procId = document.getElementById("modal-rep-proceso-id").value;
+  const xmlFile = document.getElementById("modal-rep-xml").files[0];
+  const pdfFile = document.getElementById("modal-rep-pdf").files[0];
+
+  const btn = event.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.innerText = "Validando y guardando REP...";
+
+  try {
+    let xmlData = xmlFile ? await archivoABase64(xmlFile) : null;
+    let pdfData = pdfFile ? await archivoABase64(pdfFile) : null;
+
+    const payload = {
+      accion: "subirREPParcialidad",
+      pagoId: idPago,
+      procesoId: procId,
+      repXmlFile: xmlData,
+      repPdfFile: pdfData
+    };
+
+    const res = await enviarPeticionAppsScript(payload);
+
+    if (res && res.success) {
+      alert(`✓ ¡Complemento de Pago (REP) validado y registrado para el abono ${idPago}!\nEstatus actualizado a: RECIBIDO`);
+
+      const modalEl = document.getElementById("modalSubirREPModal");
+      const modal = bootstrap.Modal.getInstance(modalEl);
+      if (modal) modal.hide();
+      event.target.reset();
+
+      // Recargar parcialidades y actualizar vista
+      await cargarParcialidadesRemotas(procId);
+      cargarDashboard();
+    } else {
+      throw new Error(res.error || "No se pudo vincular el Complemento de Pago.");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error al cargar REP: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerText = "Validar y Guardar REP";
+  }
+}
+
+/**
+ * Regla de Negocio Estricta: Cierre Final de Proceso
+ * PROHIBIDO cerrar si no se ha cubierto el saldo o si hay algún REP pendiente
+ */
+async function intentarCierreFinalProceso() {
+  if (!procesoSeleccionadoDetalle) return;
+
+  const saldo = procesoSeleccionadoDetalle.saldo_pendiente || 0;
+  const repsPend = procesoSeleccionadoDetalle.reps_pendientes || 0;
+
+  if (saldo > 0) {
+    alert(`⛔ BLOQUEO DE CIERRE:\n\nNo se puede concluir el proceso porque aún existe un saldo pendiente de ${formatoMoneda(saldo)}.\nRegistra las parcialidades faltantes.`);
+    return;
+  }
+
+  if (repsPend > 0) {
+    alert(`⛔ BLOQUEO FISCAL:\n\nExisten ${repsPend} Complemento(s) de Pago (REP) pendientes de recibir por parte del proveedor.\nEl SAT exige el match perfecto entre los abonos y sus complementos antes de dar por cerrado el proceso.`);
+    return;
+  }
+
+  if (!confirm(`¿Confirmas el cierre formal y definitivo de la compra ${procesoSeleccionadoDetalle.id}?\n\n- Saldo liquidado al 100%\n- Todos los complementos fiscales (REP) validados y archivados.`)) {
+    return;
+  }
+
+  try {
+    const res = await enviarPeticionAppsScript({
+      accion: "actualizarProceso",
+      procesoId: procesoSeleccionadoDetalle.id,
+      estatus: "PAGADO_TOTAL_CERRADO"
+    });
+
+    if (res && res.success) {
+      alert(`🎉 ¡PROCESO ${procesoSeleccionadoDetalle.id} CONCLUIDO Y CERRADO CON ÉXITO!\nCumplimiento comercial y fiscal al 100%.`);
+      procesoSeleccionadoDetalle.estatus = "PAGADO_TOTAL_CERRADO";
+      actualizarVisualStepperModal(procesoSeleccionadoDetalle);
+      cargarDashboard();
+    } else {
+      throw new Error(res.error || "Error al cerrar proceso.");
+    }
+  } catch (err) {
+    alert("Error al cerrar proceso: " + err.message);
   }
 }
 
@@ -903,6 +1191,9 @@ async function cargarSelectProcesos(selector, filterAbiertos = false) {
     const accion = filterAbiertos ? "obtenerProcesosConSaldo" : "obtenerProcesosActivos";
     const res = await enviarPeticionAppsScript({ accion: accion });
     if (res && res.success && res.procesos) {
+      if (filterAbiertos) {
+        listaProcesosPagosCache = res.procesos;
+      }
       select.innerHTML = '<option value="">Selecciona un proceso...</option>';
       res.procesos.forEach(p => {
         select.innerHTML += `<option value="${p.id}">${p.id} - ${p.concepto} (Saldo: ${formatoMoneda(p.saldo_pendiente)})</option>`;
@@ -991,6 +1282,30 @@ async function actualizarProceso(event) {
 // ==========================================
 // MÓDULO: PAGOS (pagos.html)
 // ==========================================
+let listaProcesosPagosCache = [];
+
+async function actualizarInfoProcesoEnPagos(idProceso) {
+  const container = document.getElementById("info-proceso-pago-container");
+  const elMonto = document.getElementById("info-pago-monto-global");
+  const elSaldo = document.getElementById("info-pago-saldo-actual");
+  const inputMonto = document.getElementById("inputMontoAbonado");
+
+  if (!idProceso) {
+    if (container) container.style.display = "none";
+    return;
+  }
+
+  const proc = listaProcesosPagosCache.find(p => p.id === idProceso);
+  if (proc) {
+    if (container) container.style.display = "block";
+    if (elMonto) elMonto.innerText = formatoMoneda(proc.monto_total || proc.monto_acordado || 0);
+    if (elSaldo) elSaldo.innerText = formatoMoneda(proc.saldo_pendiente || 0);
+    if (inputMonto && (!inputMonto.value || inputMonto.value === "0")) {
+      inputMonto.value = (proc.saldo_pendiente || 0).toFixed(2);
+    }
+  }
+}
+
 async function registrarPago(event) {
   event.preventDefault();
   const form = event.target;
@@ -1004,9 +1319,12 @@ async function registrarPago(event) {
       compData = await archivoABase64(fileComp);
     }
 
+    const numParcialidad = form.numParcialidad ? form.numParcialidad.value.trim() : "Abono Parcial";
+
     const payload = {
       accion: "registrarPago",
       procesoId: form.procesoId.value,
+      numParcialidad: numParcialidad,
       montoAbonado: form.montoAbonado.value,
       fechaTransferencia: form.fechaTransferencia.value,
       comprobanteFile: compData
@@ -1014,8 +1332,11 @@ async function registrarPago(event) {
 
     const res = await enviarPeticionAppsScript(payload);
     if (res && res.success) {
-      alert("Pago registrado correctamente en Google Sheets.");
+      alert(`🎉 ¡Abono registrado correctamente en Google Sheets!\n\nID Pago: ${res.idPago}\nParcialidad: ${numParcialidad}\nEstatus REP: PENDIENTE\nSaldo Restante: ${formatoMoneda(res.saldoRestante)}`);
       form.reset();
+      const container = document.getElementById("info-proceso-pago-container");
+      if (container) container.style.display = "none";
+      cargarSelectProcesos('select[name="procesoId"]', true);
     } else {
       throw new Error(res.error || "Error al procesar pago.");
     }
@@ -1155,7 +1476,8 @@ let estadoP2P = {
   cotizaciones: [], // Lista de cotizaciones extraídas o capturadas
   proveedorSeleccionado: null,
   folioOC: "",
-  pdfOCBase64: null
+  pdfOCBase64: null,
+  proveedoresCatalogo: [] // Catálogo de proveedores registrados en Google Sheets
 };
 
 /**
@@ -1185,6 +1507,65 @@ function p2pInicializarModuloCompras() {
   hoy.setDate(hoy.getDate() + 7);
   const elReqFecha = document.getElementById("req-fecha-limite");
   if (elReqFecha) elReqFecha.value = hoy.toISOString().split('T')[0];
+
+  // Cargar catálogo de proveedores registrados en segundo plano
+  p2pCargarProveedoresCatalogo();
+}
+
+/**
+ * Consulta la lista de proveedores registrados en Google Sheets para el asistente P2P
+ */
+async function p2pCargarProveedoresCatalogo() {
+  try {
+    const res = await enviarPeticionAppsScript({ accion: "obtenerProveedores" });
+    if (res && res.success && Array.isArray(res.proveedores)) {
+      estadoP2P.proveedoresCatalogo = res.proveedores;
+      p2pLlenarSelectCatalogoManual();
+    }
+  } catch (err) {
+    console.warn("Aviso al consultar catálogo de proveedores:", err);
+  }
+}
+
+/**
+ * Llena el selector de proveedores registrados en el modal de captura manual
+ */
+function p2pLlenarSelectCatalogoManual() {
+  const selectEl = document.getElementById("manual-select-catalogo");
+  if (!selectEl) return;
+
+  // Mantener la primera opción por defecto
+  selectEl.innerHTML = '<option value="">— Capturar proveedor nuevo o seleccionar uno registrado... —</option>';
+
+  estadoP2P.proveedoresCatalogo.forEach(p => {
+    const opt = document.createElement("option");
+    opt.value = p.rfc || p.id || p.razon_social;
+    opt.innerText = `${p.razon_social} (${p.rfc || 'Sin RFC'})`;
+    opt.dataset.nombre = p.razon_social || "";
+    opt.dataset.rfc = p.rfc || "";
+    opt.dataset.correo = p.correo || "";
+    opt.dataset.telefono = p.telefono || "";
+    selectEl.appendChild(opt);
+  });
+}
+
+/**
+ * Autofill cuando el usuario selecciona un proveedor registrado en el modal manual
+ */
+function p2pSeleccionarDeCatalogoManual(valor) {
+  if (!valor) return;
+  const prov = estadoP2P.proveedoresCatalogo.find(p => (p.rfc === valor || p.id === valor || p.razon_social === valor));
+  if (!prov) return;
+
+  const elNombre = document.getElementById("manual-prov-nombre");
+  const elRfc = document.getElementById("manual-prov-rfc");
+  const elCorreo = document.getElementById("manual-prov-correo");
+  const elTel = document.getElementById("manual-prov-tel");
+
+  if (elNombre) elNombre.value = prov.razon_social || "";
+  if (elRfc) elRfc.value = prov.rfc || "";
+  if (elCorreo) elCorreo.value = prov.correo || "";
+  if (elTel) elTel.value = prov.telefono || "";
 }
 
 /**
@@ -1931,6 +2312,13 @@ function p2pGenerarBorradorOC() {
   const elPago = document.getElementById("oc-pago-input");
   if (elPago) elPago.value = prov.condicionesPago;
 
+  // Sincronizar inputs de contacto de proveedor (editables en Fase 3)
+  const elCorreoProv = document.getElementById("oc-prov-correo-input");
+  if (elCorreoProv) elCorreoProv.value = prov.correo || "";
+
+  const elTelProv = document.getElementById("oc-prov-tel-input");
+  if (elTelProv) elTelProv.value = prov.telefono || "";
+
   // Llenar previsualización imprimible
   document.getElementById("po-preview-folio").innerText = estadoP2P.folioOC;
   document.getElementById("po-preview-process-id").innerText = estadoP2P.procesoId;
@@ -1973,32 +2361,65 @@ function p2pGenerarBorradorOC() {
   document.getElementById("po-preview-iva").innerText = `${sim}${(prov.iva || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
   document.getElementById("po-preview-total").innerText = `${sim}${(prov.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 
-  p2pActualizarPreviewOC();
+  p2pActualizarPreviewOC(true); // Inicializar y sincronizar Fase 4
 }
 
-function p2pActualizarPreviewOC() {
-  const entrega = document.getElementById("oc-entrega-input").value;
-  const pago = document.getElementById("oc-pago-input").value;
-  const dir = document.getElementById("oc-direccion-input").value;
-  const notas = document.getElementById("oc-notas-input").value;
+function p2pActualizarPreviewOC(esInicial = false) {
+  const entrega = document.getElementById("oc-entrega-input") ? document.getElementById("oc-entrega-input").value : "";
+  const pago = document.getElementById("oc-pago-input") ? document.getElementById("oc-pago-input").value : "";
+  const dir = document.getElementById("oc-direccion-input") ? document.getElementById("oc-direccion-input").value : "";
+  const notas = document.getElementById("oc-notas-input") ? document.getElementById("oc-notas-input").value : "";
+  const correoProv = document.getElementById("oc-prov-correo-input") ? document.getElementById("oc-prov-correo-input").value.trim() : "";
+  const telProv = document.getElementById("oc-prov-tel-input") ? document.getElementById("oc-prov-tel-input").value.trim() : "";
 
-  document.getElementById("po-preview-tiempo").innerText = entrega;
-  document.getElementById("po-preview-pago").innerText = pago;
-  document.getElementById("po-preview-entrega-lugar").innerText = dir;
-  document.getElementById("po-preview-observaciones").innerText = notas;
+  if (document.getElementById("po-preview-tiempo")) document.getElementById("po-preview-tiempo").innerText = entrega;
+  if (document.getElementById("po-preview-pago")) document.getElementById("po-preview-pago").innerText = pago;
+  if (document.getElementById("po-preview-entrega-lugar")) document.getElementById("po-preview-entrega-lugar").innerText = dir;
+  if (document.getElementById("po-preview-observaciones")) document.getElementById("po-preview-observaciones").innerText = notas;
+
+  if (correoProv && document.getElementById("po-preview-prov-contacto")) {
+    document.getElementById("po-preview-prov-contacto").innerText = correoProv;
+  }
+  if (telProv && document.getElementById("po-preview-prov-tel")) {
+    document.getElementById("po-preview-prov-tel").innerText = telProv;
+  }
 
   // Actualizar también resumen en Fase 4
   const prov = estadoP2P.proveedorSeleccionado;
   if (prov) {
-    document.getElementById("f4-summary-process").innerText = estadoP2P.procesoId;
-    document.getElementById("f4-summary-folio").innerText = estadoP2P.folioOC;
-    document.getElementById("f4-summary-proveedor").innerText = prov.proveedor;
-    document.getElementById("f4-summary-monto").innerText = `${prov.moneda} $${prov.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (Est. ${formatoMoneda(prov.totalNormalizadoMXN)})`;
-    document.getElementById("f4-summary-tiempo").innerText = entrega;
+    if (document.getElementById("f4-summary-process")) document.getElementById("f4-summary-process").innerText = estadoP2P.procesoId;
+    if (document.getElementById("f4-summary-folio")) document.getElementById("f4-summary-folio").innerText = estadoP2P.folioOC;
+    if (document.getElementById("f4-summary-proveedor")) document.getElementById("f4-summary-proveedor").innerText = prov.proveedor;
+    if (document.getElementById("f4-summary-monto")) document.getElementById("f4-summary-monto").innerText = `${prov.moneda} $${prov.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (Est. ${formatoMoneda(prov.totalNormalizadoMXN)})`;
+    if (document.getElementById("f4-summary-tiempo")) document.getElementById("f4-summary-tiempo").innerText = entrega;
 
-    document.getElementById("f4-correo-destinatario").value = prov.correo || "";
-    document.getElementById("f4-correo-asunto").value = `Orden de Compra ${estadoP2P.folioOC} - ${estadoP2P.concepto}`;
+    // Sincronizar el correo en Fase 4
+    const elF4Correo = document.getElementById("f4-correo-destinatario");
+    if (elF4Correo) {
+      if (esInicial || !elF4Correo.value || elF4Correo.dataset.dirty !== "true") {
+        elF4Correo.value = correoProv || prov.correo || "";
+      }
+    }
+
+    const elF4Asunto = document.getElementById("f4-correo-asunto");
+    if (elF4Asunto && (!elF4Asunto.value || esInicial)) {
+      elF4Asunto.value = `Orden de Compra ${estadoP2P.folioOC} - ${estadoP2P.concepto || 'Requerimiento'}`;
+    }
   }
+}
+
+/**
+ * Permite al usuario modificar el correo directamente en Fase 4 manteniendo consistencia con el preview
+ */
+function p2pSincronizarCorreoDesdeFase4(nuevoCorreo) {
+  const elF4 = document.getElementById("f4-correo-destinatario");
+  if (elF4) elF4.dataset.dirty = "true";
+
+  const elPreviewContacto = document.getElementById("po-preview-prov-contacto");
+  if (elPreviewContacto) elPreviewContacto.innerText = nuevoCorreo || "N/A";
+
+  const elF3Correo = document.getElementById("oc-prov-correo-input");
+  if (elF3Correo) elF3Correo.value = nuevoCorreo;
 }
 
 // -------------------------------------------------------------
@@ -2007,11 +2428,17 @@ function p2pActualizarPreviewOC() {
 async function p2pGenerarPDFDocumento(descargar = false) {
   const elemento = document.getElementById("printable-po-document");
   const opt = {
-    margin: [10, 10, 10, 10],
-    filename: `${estadoP2P.folioOC}_${estadoP2P.proveedorSeleccionado.rfc}.pdf`,
+    margin: [8, 8, 8, 8],
+    filename: `${estadoP2P.folioOC || 'OC-ORDEN'}_${(estadoP2P.proveedorSeleccionado && estadoP2P.proveedorSeleccionado.rfc) || 'PROV'}.pdf`,
     image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2, useCORS: true },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    html2canvas: {
+      scale: 2,
+      useCORS: true,
+      scrollY: 0,
+      letterRendering: true
+    },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
   };
 
   if (descargar) {
@@ -2089,12 +2516,23 @@ async function p2pAprobarYEmitirOrden() {
 
     let extraInfo = "";
     if (res && res.success) {
-      extraInfo = `\n\n- Sincronizado en Google Sheets.\n- Carpeta en Drive: ${res.carpetaUrl || 'Expedientes'}\n- Correo enviado a: ${correoDestino}`;
+      const correoInfo = res.correoEnviado
+        ? `✅ Correo enviado automáticamente a: ${correoDestino}`
+        : `⚠️ Nota de Correo: No se pudo enviar directo desde Google Apps Script (${res.errorCorreo || 'permiso MailApp no autorizado en Apps Script'}). Se abrirá tu cliente de correo como respaldo.`;
+
+      extraInfo = `\n\n- Sincronizado en Google Sheets.\n- Carpeta en Drive: ${res.carpetaUrl || 'Expedientes'}\n- ${correoInfo}`;
+
+      if (!res.correoEnviado && correoDestino) {
+        const mailtoLink = `mailto:${correoDestino}?subject=${encodeURIComponent(correoAsunto)}&body=${encodeURIComponent(correoCuerpo + "\n\n(Se adjunta PDF de Orden de Compra descargado)")}`;
+        window.open(mailtoLink, '_blank');
+      }
     } else {
       // Fallback amigable si la URL de apps script aún no se actualiza o no tiene internet
       const mailtoLink = `mailto:${correoDestino}?subject=${encodeURIComponent(correoAsunto)}&body=${encodeURIComponent(correoCuerpo + "\n\n(Se adjunta PDF de Orden de Compra descargado)")}`;
-      extraInfo = `\n\nEl PDF formal se ha descargado a tu equipo.\nPuedes remitirlo al proveedor haciendo clic en abrir cliente de correo si lo deseas.`;
-      window.open(mailtoLink, '_blank');
+      extraInfo = `\n\nEl PDF formal se ha descargado a tu equipo.\nSe abrió el enlace para remitirlo al proveedor vía tu cliente de correo.`;
+      if (correoDestino) {
+        window.open(mailtoLink, '_blank');
+      }
     }
 
     alert(`🎉 ¡ORDEN DE COMPRA APROBADA CON ÉXITO!\n\nFolio: ${estadoP2P.folioOC}\nProcess_ID: ${estadoP2P.procesoId}\nProveedor: ${prov.proveedor}${extraInfo}`);
