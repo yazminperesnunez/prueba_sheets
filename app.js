@@ -1,7 +1,7 @@
 // version_sheets_drive/app.js
 // Conexión directa a Google Sheets y Google Drive vía Google Apps Script
 
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyQB9HYlXN09aZ7jzTuSayr8yogQ4XbmUw8ZlUGcMuE2aqILZWFPEqXeFRWY9Qrg6XZ/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxOvGsNq0O92P5mQZ9oaAPhBbpDAdniG5cuo2qIRUA7xaH-36uhhTHyhnkOr9AxdHKO/exec";
 
 // ==========================================
 // MÓDULO: DASHBOARD (index.html)
@@ -338,7 +338,7 @@ function renderizarTablaDashboardFiltrada() {
 
     // Enlaces a documentos (cotización, orden de compra o carpeta drive)
     let urlDoc = p.cotizacion_url || p.contrato_url || "";
-    let btnVerDoc = urlDoc 
+    let btnVerDoc = urlDoc
       ? `<a href="${urlDoc}" target="_blank" class="btn btn-sm btn-outline-secondary" title="Abrir expediente en Google Drive">
            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Doc
          </a>`
@@ -1271,12 +1271,12 @@ function p2pGuardarRequerimiento(event) {
     const unidad = f.querySelector(".item-unidad").value;
 
     if (desc) {
-      items.push({ 
-        partida: partidaNum, 
-        sku: `Item #${partidaNum}`, 
-        desc, 
-        cant, 
-        unidad 
+      items.push({
+        partida: partidaNum,
+        sku: `Item #${partidaNum}`,
+        desc,
+        cant,
+        unidad
       });
     }
   });
@@ -1905,7 +1905,7 @@ function p2pGenerarBorradorOC() {
 
   const sesion = (typeof obtenerUsuarioActual === 'function') ? obtenerUsuarioActual() : null;
   document.getElementById("po-preview-firmante").innerText = sesion ? sesion.nombre : (estadoP2P.solicitante || "Administrador General");
-  document.getElementById("po-firma-digital-solic").innerText = `[ FIRMA DIGITAL: ${sesion ? sesion.usuario.toUpperCase() : 'ADMIN'} - ${new Date().toISOString().substring(0,10)} ]`;
+  document.getElementById("po-firma-digital-solic").innerText = `[ FIRMA DIGITAL: ${sesion ? sesion.usuario.toUpperCase() : 'ADMIN'} - ${new Date().toISOString().substring(0, 10)} ]`;
 
   // Llenar tabla de ítems de la OC
   const tbody = document.getElementById("po-preview-items-tbody");
