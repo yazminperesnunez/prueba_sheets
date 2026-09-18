@@ -1794,30 +1794,33 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
   // 7. Detectar Condiciones de Pago
   let condicionesPago = "Crédito a 30 días";
   
+  // Normalizar para comparación sin acentos ni signos raros
+  const textoSinAcentos = textoNorm.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
   // Revisión prioritaria: Parcialidades / Pagos diferidos / Esquemas por hitos
-  if (/parcialidad|parcialidades|ppd|abonos|diferido|mensualidades|plazos/i.test(textoNorm)) {
+  if (/parcial|parcialidad|parcialidades|ppd|abono|abonos|diferid|mensualidad|mensualidades|plazos|cuotas|ministracion|ministraciones|hito|hitos/i.test(textoSinAcentos)) {
     // Buscar si indica número de parcialidades (ej. 3 parcialidades, 2 pagos)
-    const matchParc = textoNorm.match(/(\d+)\s*(?:parcialidades|pagos|abonos|mensualidades)/i);
+    const matchParc = textoSinAcentos.match(/(\d+)\s*(?:parcialidades|parcialidad|pagos|abonos|mensualidades|cuotas)/i);
     if (matchParc && matchParc[1]) {
       condicionesPago = `Parcialidades (${matchParc[1]} pagos)`;
     } else {
       condicionesPago = "Pago en Parcialidades / Diferido (PPD)";
     }
-  } else if (/anticipo\s*(?:del)?\s*(\d+)%/i.test(textoNorm)) {
-    // Caso común: 50% anticipo y saldo contra entrega / 30 días (esto es un esquema parcial/mixto, NO contado simple)
-    const matchAnticipo = textoNorm.match(/anticipo\s*(?:del)?\s*(\d+)%/i);
+  } else if (/anticipo\s*(?:del)?\s*(\d+)%/i.test(textoSinAcentos)) {
+    // Caso común: 50% anticipo y saldo contra entrega / 30 días (esquema mixto / parcial)
+    const matchAnticipo = textoSinAcentos.match(/anticipo\s*(?:del)?\s*(\d+)%/i);
     condicionesPago = `Parcialidad (${matchAnticipo[1]}% anticipo / saldo restante)`;
-  } else if (/contado\s*(?:riguroso|inmediato|comercial)?\b|100%\s*(?:anticipo|contado)|pue\b/i.test(textoNorm) && !/sin\s+anticipo/i.test(textoNorm)) {
+  } else if (/contado|anticipado|una\s+sola\s+exhibicion|pue\b/i.test(textoSinAcentos) && !/sin\s+anticipo|no\s+contado/i.test(textoSinAcentos)) {
     condicionesPago = "Contado / Anticipado";
-  } else if (/15 d[ií]as/i.test(textoNorm)) {
+  } else if (/15\s*dias/i.test(textoSinAcentos)) {
     condicionesPago = "Crédito a 15 días";
-  } else if (/45 d[ií]as/i.test(textoNorm)) {
+  } else if (/45\s*dias/i.test(textoSinAcentos)) {
     condicionesPago = "Crédito a 45 días";
-  } else if (/60 d[ií]as/i.test(textoNorm)) {
+  } else if (/60\s*dias/i.test(textoSinAcentos)) {
     condicionesPago = "Crédito a 60 días";
-  } else if (/90 d[ií]as/i.test(textoNorm)) {
+  } else if (/90\s*dias/i.test(textoSinAcentos)) {
     condicionesPago = "Crédito a 90 días";
-  } else if (/cr[eé]dito/i.test(textoNorm)) {
+  } else if (/credito/i.test(textoSinAcentos)) {
     condicionesPago = "Crédito comercial";
   }
 
@@ -2068,9 +2071,15 @@ function p2pRenderizarCardsCotizaciones() {
             <span class="text-muted">Entrega Estimada:</span>
             <strong class="${c.esMasRapido ? 'text-warning fw-bold' : ''}">⚡ ${c.tiempoEntrega} días hábiles</strong>
           </div>
-          <div class="d-flex justify-content-between">
+          <div class="d-flex justify-content-between align-items-center">
             <span class="text-muted">Condición Pago:</span>
-            <span>${c.condicionesPago || 'Crédito'}</span>
+            <select class="form-select form-select-sm py-0 px-1 border-primary" style="font-size: 0.78rem; width: auto; max-width: 175px;" onclick="event.stopPropagation()" onchange="p2pModificarCondicionPagoCotizacion('${c.id}', this.value)">
+              <option value="Pago en Parcialidades / Diferido (PPD)" ${c.condicionesPago.includes('Parcialidad') || c.condicionesPago.includes('PPD') ? 'selected' : ''}>📌 Parcialidades / PPD</option>
+              <option value="Contado / Anticipado" ${c.condicionesPago.includes('Contado') ? 'selected' : ''}>💵 Contado</option>
+              <option value="Crédito a 30 días" ${c.condicionesPago.includes('30') ? 'selected' : ''}>🗓 Crédito 30 días</option>
+              <option value="Crédito a 15 días" ${c.condicionesPago.includes('15') ? 'selected' : ''}>🗓 Crédito 15 días</option>
+              <option value="Crédito comercial" ${!c.condicionesPago.includes('Parcialidad') && !c.condicionesPago.includes('PPD') && !c.condicionesPago.includes('Contado') && !c.condicionesPago.includes('30') && !c.condicionesPago.includes('15') ? 'selected' : ''}>🏢 Crédito Comercial</option>
+            </select>
           </div>
         </div>
 
@@ -2086,6 +2095,18 @@ function p2pRenderizarCardsCotizaciones() {
     `;
     cont.appendChild(card);
   });
+}
+
+function p2pModificarCondicionPagoCotizacion(cotId, nuevaCondicion) {
+  const cot = estadoP2P.cotizaciones.find(c => c.id === cotId);
+  if (cot) {
+    cot.condicionesPago = nuevaCondicion;
+    if (estadoP2P.proveedorSeleccionado && estadoP2P.proveedorSeleccionado.id === cotId) {
+      estadoP2P.proveedorSeleccionado.condicionesPago = nuevaCondicion;
+      p2pGenerarBorradorOC();
+    }
+    p2pRenderizarTablaComparativa();
+  }
 }
 
 function p2pEliminarCotizacion(cotId) {
