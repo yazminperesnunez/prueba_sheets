@@ -140,31 +140,48 @@ function clasificarEstatusProceso(p) {
 }
 
 /**
- * Genera la etiqueta HTML con el color correspondiente:
- * - Gris: En cotización / Inicio
- * - Azul: Orden emitida / En tránsito
- * - Amarillo: Falta factura
- * - Rojo: Próximo a vencer
- * - Verde: Pagado
+ * Genera la etiqueta HTML con el color correspondiente a las etapas post-OC:
+ * 1. OC Emitida (Gris o Azul claro): Esperando despacho.
+ * 2. Entregado / En Almacén (Azul): El producto llegó físicamente (completo o parcial).
+ * 3. Falta Factura (Amarillo / Alerta): Material recibido, pendiente XML/PDF fiscal.
+ * 4. Por Pagar (Próximo) (Naranja / Warning): Factura validada; cerca de fecha límite.
+ * 5. Pagado y Cerrado (Verde / Success): Transferencia liquidada y proceso concluido.
  */
 function obtenerBadgeEstatusColor(p) {
   const estatus = (p.estatus || "").toUpperCase();
   const saldo = parseFloat(p.saldo_pendiente) || 0;
 
+  // 5. Pagado y Cerrado (Verde)
+  if (saldo === 0 || estatus === "PAGADO_TOTAL" || estatus === "PAGADO" || estatus === "CERRADO") {
+    return `<span class="badge bg-success text-white px-2 py-1"><span class="me-1">✓</span> Pagado y Cerrado</span>`;
+  }
+
+  // 4. Por Pagar (Próximo) (Naranja)
+  if (estatus.includes("POR_PAGAR") || estatus.includes("VENCER") || estatus.includes("PROGRAMADO")) {
+    return `<span class="badge bg-warning text-dark px-2 py-1" style="background-color: #fd7e14 !important; color: #fff !important;"><span class="me-1">⏱</span> Por Pagar (Próximo)</span>`;
+  }
+
+  // 3. Falta Factura (Amarillo / Alerta)
+  if (estatus.includes("FALTA_FACTURA") || (!p.cfdi_url && !p.factura_url && (estatus.includes("ENTREGADO") || estatus.includes("ALMACEN")))) {
+    return `<span class="badge bg-warning text-dark px-2 py-1"><span class="me-1">!</span> Falta Factura</span>`;
+  }
+
+  // 2. Entregado / En Almacén (Azul)
+  if (estatus.includes("ENTREGADO") || estatus.includes("ALMACEN") || estatus.includes("RECEPCION")) {
+    return `<span class="badge bg-primary text-white px-2 py-1"><span class="me-1">📦</span> Entregado / Almacén</span>`;
+  }
+
+  // 1. OC Emitida / En Cotización (Gris o Azul claro)
+  if (estatus.includes("ORDEN_COMPRA") || estatus.includes("EMITIDA") || estatus.includes("TRANSITO")) {
+    return `<span class="badge bg-info-subtle text-primary border border-info px-2 py-1"><span class="me-1">✉</span> OC Emitida</span>`;
+  }
+
   if (estatus === "EN_COTIZACION" || estatus === "COTIZACION") {
     return `<span class="badge bg-secondary text-white px-2 py-1"><span class="me-1">●</span> En Cotización</span>`;
   }
-  if (saldo === 0 || estatus === "PAGADO_TOTAL" || estatus === "PAGADO" || estatus === "CERRADO") {
-    return `<span class="badge bg-success text-white px-2 py-1"><span class="me-1">✓</span> Pagado Total</span>`;
-  }
-  if (estatus.includes("VENCER") || estatus.includes("URGENTE")) {
-    return `<span class="badge bg-danger text-white px-2 py-1"><span class="me-1">⚠</span> Próximo a Vencer</span>`;
-  }
-  if (estatus.includes("FALTA_FACTURA") || (!p.cfdi_url && !p.factura_url && (estatus.includes("EMITIDA") || estatus === "CONTRATADO"))) {
-    return `<span class="badge bg-warning text-dark px-2 py-1"><span class="me-1">!</span> Falta Factura</span>`;
-  }
-  // Azul para en tránsito / orden emitida / contratado
-  return `<span class="badge bg-primary text-white px-2 py-1"><span class="me-1">⚡</span> ${p.estatus || 'En Tránsito'}</span>`;
+
+  // Default Azul corporativo
+  return `<span class="badge bg-primary text-white px-2 py-1">${p.estatus || 'OC Emitida'}</span>`;
 }
 
 function actualizarContadoresFiltrosDashboard() {
@@ -312,38 +329,31 @@ function renderizarTablaDashboardFiltrada() {
     const monto = formatoMoneda(p.monto_acordado || 0);
     const saldo = parseFloat(p.saldo_pendiente) || 0;
 
-    // Enlaces a documentos (cotización, orden de compra o carpeta drive)
-    let urlDoc = p.cotizacion_url || p.contrato_url || "";
-    let btnVerDoc = urlDoc 
-      ? `<a href="${urlDoc}" target="_blank" class="btn btn-sm btn-outline-secondary" title="Ver cotización o expediente Drive">
-           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Doc
-         </a>`
-      : `<a href="compras.html" class="btn btn-sm btn-outline-secondary" title="Ir a comparativa P2P">
-           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> P2P
-         </a>`;
-
-    // Botón Subir Factura
-    let btnSubirFactura = `
-      <button type="button" class="btn btn-sm btn-outline-warning text-dark" onclick="abrirModalSubirFactura('${p.id}', '${(p.concepto || '').replace(/'/g, "\\'")}')" title="Cargar Factura Fiscal XML/PDF">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg> Factura
+    // Botón Ver Detalle (Abre modal con línea de tiempo)
+    let btnVerDetalle = `
+      <button type="button" class="btn btn-sm btn-primary" onclick="abrirModalDetalleProceso('${p.id}')" title="Ver Línea de Tiempo y Avanzar Estatus">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0z"></path><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg> Ver Detalle
       </button>
     `;
 
-    // Botón Registrar Pago
-    let btnPagar = saldo > 0 
-      ? `<a href="pagos.html" class="btn btn-sm btn-outline-success" title="Registrar Pago a este proceso">
-           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg> Pagar
+    // Enlaces a documentos (cotización, orden de compra o carpeta drive)
+    let urlDoc = p.cotizacion_url || p.contrato_url || "";
+    let btnVerDoc = urlDoc 
+      ? `<a href="${urlDoc}" target="_blank" class="btn btn-sm btn-outline-secondary" title="Abrir expediente en Google Drive">
+           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> Doc
          </a>`
-      : `<span class="badge bg-light text-muted border">Liquidado</span>`;
+      : "";
 
     const fila = `
       <tr>
         <td>
-          <span class="font-monospace fw-bold text-primary">${p.id}</span>
+          <a href="javascript:void(0)" onclick="abrirModalDetalleProceso('${p.id}')" class="font-monospace fw-bold text-primary text-decoration-none">
+            ${p.id}
+          </a>
         </td>
         <td>
           <div class="fw-semibold text-truncate" style="max-width: 280px;" title="${p.concepto || ''}">${p.concepto || 'Sin concepto'}</div>
-          <small class="text-muted">${saldo > 0 ? `Saldo pend: <span class="text-danger fw-semibold">${formatoMoneda(saldo)}</span>` : 'Sin saldo pendiente'}</small>
+          <small class="text-muted">${saldo > 0 ? `Saldo pend: <span class="text-danger fw-semibold">${formatoMoneda(saldo)}</span>` : '<span class="text-success fw-semibold">Liquidado</span>'}</small>
         </td>
         <td>
           <span class="fw-medium">${p.razon_social || p.proveedor_id || 'Proveedor Adjudicado'}</span>
@@ -356,9 +366,8 @@ function renderizarTablaDashboardFiltrada() {
         </td>
         <td class="text-center">
           <div class="btn-group btn-group-sm" role="group">
+            ${btnVerDetalle}
             ${btnVerDoc}
-            ${btnSubirFactura}
-            ${btnPagar}
           </div>
         </td>
       </tr>
@@ -425,6 +434,340 @@ async function guardarFacturaDesdeDashboard(event) {
     btnSubmit.innerText = "Guardar y Vincular Factura";
   }
 }
+
+// =============================================================================
+// MÓDULO: MODAL DETALLE Y LÍNEA DE TIEMPO DEL PROCESO (POST-OC)
+// =============================================================================
+let procesoSeleccionadoDetalle = null;
+
+function abrirModalDetalleProceso(idProceso) {
+  const modalEl = document.getElementById("modalDetalleProceso");
+  if (!modalEl) return;
+
+  const proceso = procesosDashboardCache.find(p => p.id === idProceso);
+  if (!proceso) {
+    alert("Proceso no encontrado en memoria.");
+    return;
+  }
+
+  procesoSeleccionadoDetalle = proceso;
+
+  // Llenar datos de cabecera y resumen
+  document.getElementById("modal-detalle-id").innerText = proceso.id;
+  document.getElementById("modal-detalle-subtitulo").innerText = `Proveedor: ${proceso.razon_social || proceso.proveedor_id || 'Adjudicado'}`;
+  document.getElementById("modal-detalle-concepto").innerText = proceso.concepto || "Sin concepto";
+  document.getElementById("modal-detalle-monto").innerText = formatoMoneda(proceso.monto_acordado || 0);
+  document.getElementById("modal-detalle-saldo").innerText = formatoMoneda(proceso.saldo_pendiente || 0);
+  document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(proceso);
+
+  // Prellenar campos del formulario de pago con el saldo restante
+  const inputPagoMonto = document.getElementById("modal-pago-monto");
+  if (inputPagoMonto) inputPagoMonto.value = (proceso.saldo_pendiente || 0).toFixed(2);
+
+  const inputPagoFecha = document.getElementById("modal-pago-fecha");
+  if (inputPagoFecha) inputPagoFecha.value = new Date().toISOString().split('T')[0];
+
+  const inputRecepFecha = document.getElementById("recepcion-fecha");
+  if (inputRecepFecha) inputRecepFecha.value = new Date().toISOString().split('T')[0];
+
+  // Actualizar la línea de tiempo visual del stepper
+  actualizarVisualStepperModal(proceso);
+
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+}
+
+/**
+ * Pinta los colores de los pasos en el stepper según el estatus del proceso:
+ * 1. OC Emitida
+ * 2. Entregado / Almacén
+ * 3. Factura Fiscal (Pendiente / Recibida)
+ * 4. Por Pagar (Próximo)
+ * 5. Pagado y Cerrado
+ */
+function actualizarVisualStepperModal(p) {
+  const estatus = (p.estatus || "").toUpperCase();
+  const saldo = parseFloat(p.saldo_pendiente) || 0;
+
+  const s1 = document.getElementById("step-post-oc");
+  const s2 = document.getElementById("step-post-entrega");
+  const s3 = document.getElementById("step-post-factura");
+  const s4 = document.getElementById("step-post-porpagar");
+  const s5 = document.getElementById("step-post-cerrado");
+
+  // Reset clases
+  [s1, s2, s3, s4, s5].forEach(s => {
+    if (s) s.className = "p-2 rounded border bg-light text-secondary";
+  });
+
+  // Paso 1: OC Emitida siempre está activo o completado
+  if (s1) s1.className = "p-2 rounded border bg-primary text-white shadow-sm";
+
+  // Determinar en qué fase está
+  const esEntregado = estatus.includes("ENTREGADO") || estatus.includes("ALMACEN") || estatus.includes("FACTURA") || estatus.includes("PAGAR") || estatus.includes("PAGADO");
+  const tieneFactura = p.cfdi_url || p.factura_url || estatus.includes("POR_PAGAR") || estatus.includes("PAGADO");
+  const esPorPagar = (saldo > 0 && tieneFactura) || estatus.includes("POR_PAGAR") || estatus.includes("VENCER");
+  const esPagado = saldo === 0 || estatus.includes("PAGADO") || estatus === "CERRADO";
+
+  if (esEntregado && s2) {
+    s2.className = "p-2 rounded border bg-primary text-white shadow-sm";
+    document.getElementById("status-entrega-badge").innerText = "✓ Entregado en Almacén";
+    document.getElementById("status-entrega-badge").className = "badge bg-success-subtle text-success border border-success";
+  } else {
+    document.getElementById("status-entrega-badge").innerText = "Pendiente de Llegada";
+    document.getElementById("status-entrega-badge").className = "badge bg-light text-secondary border";
+  }
+
+  if (tieneFactura && s3) {
+    s3.className = "p-2 rounded border bg-primary text-white shadow-sm";
+    document.getElementById("status-factura-badge").innerText = "✓ Factura Validada";
+    document.getElementById("status-factura-badge").className = "badge bg-success-subtle text-success border border-success";
+  } else if (esEntregado) {
+    if (s3) s3.className = "p-2 rounded border bg-warning text-dark shadow-sm";
+    document.getElementById("status-factura-badge").innerText = "⚠ Falta Factura Fiscal";
+    document.getElementById("status-factura-badge").className = "badge bg-warning-subtle text-warning border border-warning";
+  }
+
+  if (esPorPagar && !esPagado && s4) {
+    s4.className = "p-2 rounded border text-white shadow-sm";
+    s4.style.backgroundColor = "#fd7e14";
+    document.getElementById("status-pago-badge").innerText = "⏱ Programado para Pago";
+    document.getElementById("status-pago-badge").className = "badge bg-warning-subtle text-warning border border-warning";
+  }
+
+  if (esPagado && s5) {
+    [s1, s2, s3, s4, s5].forEach(s => {
+      if (s) {
+        s.className = "p-2 rounded border bg-success text-white shadow-sm";
+        s.style.backgroundColor = "";
+      }
+    });
+    document.getElementById("status-pago-badge").innerText = "✓ Pagado y Cerrado";
+    document.getElementById("status-pago-badge").className = "badge bg-success-subtle text-success border border-success";
+  }
+}
+
+/**
+ * 1. Logística y Almacén: Registrar llegada física y acuse
+ */
+async function guardarRecepcionEntrega(event) {
+  event.preventDefault();
+  if (!procesoSeleccionadoDetalle) return;
+
+  const tipo = document.getElementById("recepcion-tipo").value;
+  const fecha = document.getElementById("recepcion-fecha").value;
+  const fileInput = document.getElementById("recepcion-archivo");
+
+  const btn = event.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.innerText = "Registrando en almacén...";
+
+  try {
+    let remisionData = null;
+    if (fileInput.files[0]) {
+      remisionData = await archivoABase64(fileInput.files[0]);
+    }
+
+    const nuevoEstatus = tipo === "COMPLETA" ? "ENTREGADO_ALMACEN" : "ENTREGA_PARCIAL";
+
+    const payload = {
+      accion: "actualizarProceso",
+      procesoId: procesoSeleccionadoDetalle.id,
+      estatus: nuevoEstatus,
+      fechaEntregaReal: fecha,
+      remisionFile: remisionData
+    };
+
+    const res = await enviarPeticionAppsScript(payload);
+
+    if (res && res.success) {
+      alert(`¡Recepción de insumos registrada exitosamente!\nEstatus actualizado a: ${nuevoEstatus}`);
+      procesoSeleccionadoDetalle.estatus = nuevoEstatus;
+      document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(procesoSeleccionadoDetalle);
+      actualizarVisualStepperModal(procesoSeleccionadoDetalle);
+      cargarDashboard();
+    } else {
+      throw new Error(res.error || "No se pudo registrar la entrega.");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error al registrar entrega: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerText = "Registrar Llegada a Almacén";
+  }
+}
+
+/**
+ * 2. Facturación SAT: Subir XML y PDF desde el modal de detalle
+ */
+async function guardarFacturaDesdeModalDetalle(event) {
+  event.preventDefault();
+  if (!procesoSeleccionadoDetalle) return;
+
+  const xmlFile = document.getElementById("modal-factura-xml").files[0];
+  const pdfFile = document.getElementById("modal-factura-pdf").files[0];
+
+  const btn = event.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.innerText = "Validando y guardando...";
+
+  try {
+    let xmlData = xmlFile ? await archivoABase64(xmlFile) : null;
+    let pdfData = pdfFile ? await archivoABase64(pdfFile) : null;
+
+    const payload = {
+      accion: "subirCFDI",
+      procesoId: procesoSeleccionadoDetalle.id,
+      xmlFile: xmlData,
+      pdfFile: pdfData
+    };
+
+    const res = await enviarPeticionAppsScript(payload);
+
+    if (res && res.success) {
+      alert(`¡Factura fiscal XML y PDF validada y vinculada al proceso ${procesoSeleccionadoDetalle.id}!`);
+      procesoSeleccionadoDetalle.cfdi_url = "cargado";
+      procesoSeleccionadoDetalle.estatus = "POR_PAGAR_PROGRAMADO";
+      document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(procesoSeleccionadoDetalle);
+      actualizarVisualStepperModal(procesoSeleccionadoDetalle);
+      cargarDashboard();
+    } else {
+      throw new Error(res.error || "Error al subir factura.");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error al procesar factura: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerText = "Validar y Cargar Factura";
+  }
+}
+
+/**
+ * 3. Tesorería: Marcar como programado / por pagar próximo
+ */
+async function programarPagoUrgente() {
+  if (!procesoSeleccionadoDetalle) return;
+
+  try {
+    const payload = {
+      accion: "actualizarProceso",
+      procesoId: procesoSeleccionadoDetalle.id,
+      estatus: "POR_PAGAR_PROGRAMADO"
+    };
+
+    const res = await enviarPeticionAppsScript(payload);
+    if (res && res.success) {
+      alert("Proceso programado en calendario de pagos.");
+      procesoSeleccionadoDetalle.estatus = "POR_PAGAR_PROGRAMADO";
+      document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(procesoSeleccionadoDetalle);
+      actualizarVisualStepperModal(procesoSeleccionadoDetalle);
+      cargarDashboard();
+    }
+  } catch (err) {
+    alert("Error al programar pago: " + err.message);
+  }
+}
+
+/**
+ * 3. Tesorería: Registrar pago, adjuntar comprobante y cerrar proceso
+ */
+async function guardarPagoDesdeModalDetalle(event) {
+  event.preventDefault();
+  if (!procesoSeleccionadoDetalle) return;
+
+  const monto = document.getElementById("modal-pago-monto").value;
+  const fecha = document.getElementById("modal-pago-fecha").value;
+  const compFile = document.getElementById("modal-pago-comprobante").files[0];
+
+  const btn = event.target.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.innerText = "Aplicando pago y cerrando...";
+
+  try {
+    let compData = compFile ? await archivoABase64(compFile) : null;
+
+    const payload = {
+      accion: "registrarPago",
+      procesoId: procesoSeleccionadoDetalle.id,
+      montoAbonado: monto,
+      fechaTransferencia: fecha,
+      comprobanteFile: compData
+    };
+
+    const res = await enviarPeticionAppsScript(payload);
+
+    if (res && res.success) {
+      alert(`🎉 ¡Pago registrado con éxito!\nComprobante bancario vinculado. Proceso liquidado.`);
+      procesoSeleccionadoDetalle.saldo_pendiente = Math.max(0, (procesoSeleccionadoDetalle.saldo_pendiente || 0) - parseFloat(monto));
+      if (procesoSeleccionadoDetalle.saldo_pendiente === 0) {
+        procesoSeleccionadoDetalle.estatus = "PAGADO_TOTAL";
+      }
+      document.getElementById("modal-detalle-saldo").innerText = formatoMoneda(procesoSeleccionadoDetalle.saldo_pendiente);
+      document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(procesoSeleccionadoDetalle);
+      actualizarVisualStepperModal(procesoSeleccionadoDetalle);
+      cargarDashboard();
+    } else {
+      throw new Error(res.error || "No se pudo registrar el pago.");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error registrando pago: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerText = "Liquidar y Cerrar Proceso";
+  }
+}
+
+/**
+ * Botón para avanzar manualmente al siguiente estatus lógico
+ */
+async function avanzarSiguienteEstatusManual() {
+  if (!procesoSeleccionadoDetalle) return;
+
+  const estatusActual = (procesoSeleccionadoDetalle.estatus || "").toUpperCase();
+  let proximoEstatus = "ENTREGADO_ALMACEN";
+
+  if (estatusActual.includes("ORDEN") || estatusActual.includes("EMITIDA") || estatusActual.includes("TRANSITO")) {
+    proximoEstatus = "ENTREGADO_ALMACEN";
+  } else if (estatusActual.includes("ENTREGADO") || estatusActual.includes("ALMACEN")) {
+    proximoEstatus = "FALTA_FACTURA";
+  } else if (estatusActual.includes("FACTURA")) {
+    proximoEstatus = "POR_PAGAR_PROGRAMADO";
+  } else if (estatusActual.includes("PAGAR") || estatusActual.includes("PROGRAMADO")) {
+    proximoEstatus = "PAGADO_TOTAL";
+  }
+
+  try {
+    const res = await enviarPeticionAppsScript({
+      accion: "actualizarProceso",
+      procesoId: procesoSeleccionadoDetalle.id,
+      estatus: proximoEstatus
+    });
+
+    if (res && res.success) {
+      alert(`Estatus avanzado a: ${proximoEstatus}`);
+      procesoSeleccionadoDetalle.estatus = proximoEstatus;
+      document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(procesoSeleccionadoDetalle);
+      actualizarVisualStepperModal(procesoSeleccionadoDetalle);
+      cargarDashboard();
+    }
+  } catch (e) {
+    alert("Error al avanzar estatus: " + e.message);
+  }
+}
+
+function abrirExpedienteDriveActual() {
+  if (!procesoSeleccionadoDetalle) return;
+  const url = procesoSeleccionadoDetalle.cotizacion_url || procesoSeleccionadoDetalle.contrato_url;
+  if (url) {
+    window.open(url, '_blank');
+  } else {
+    alert("No se encontró URL de Google Drive para este proceso.");
+  }
+}
+
 
 // ==========================================
 // MÓDULO: PROVEEDORES (proveedores.html)
@@ -868,15 +1211,26 @@ function p2pIrAPaso(numPaso) {
 // -------------------------------------------------------------
 // FASE 1: INICIALIZACIÓN DEL REQUERIMIENTO
 // -------------------------------------------------------------
+function p2pReindexarPartidas() {
+  const filas = document.querySelectorAll("#tabla-items-requerimiento tbody tr");
+  filas.forEach((f, idx) => {
+    const numEl = f.querySelector(".item-num");
+    if (numEl) numEl.innerText = idx + 1;
+  });
+}
+
 function p2pAgregarFilaItem() {
   const tbody = document.querySelector("#tabla-items-requerimiento tbody");
   if (!tbody) return;
 
+  const totalFilas = tbody.querySelectorAll("tr").length;
+  const numPartida = totalFilas + 1;
+
   const fila = document.createElement("tr");
   fila.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm item-sku" placeholder="SKU" required></td>
-    <td><input type="text" class="form-control form-control-sm item-desc" placeholder="Descripción del material / servicio" required></td>
-    <td><input type="number" class="form-control form-control-sm item-cant" value="1" min="1" required></td>
+    <td class="text-center font-monospace fw-bold text-muted item-num">${numPartida}</td>
+    <td><input type="text" class="form-control form-control-sm item-desc" placeholder="Descripción clara del insumo o servicio requerido" required></td>
+    <td><input type="number" class="form-control form-control-sm item-cant text-center" value="1" min="1" required></td>
     <td>
       <select class="form-select form-select-sm item-unidad">
         <option value="PZA" selected>PZA</option>
@@ -891,12 +1245,14 @@ function p2pAgregarFilaItem() {
     </td>
   `;
   tbody.appendChild(fila);
+  p2pReindexarPartidas();
 }
 
 function p2pEliminarFilaItem(btn) {
   const tbody = document.querySelector("#tabla-items-requerimiento tbody");
   if (tbody && tbody.querySelectorAll("tr").length > 1) {
     btn.closest("tr").remove();
+    p2pReindexarPartidas();
   } else {
     alert("El requerimiento debe tener al menos una partida solicitada.");
   }
@@ -908,14 +1264,20 @@ function p2pGuardarRequerimiento(event) {
   const filas = document.querySelectorAll("#tabla-items-requerimiento tbody tr");
   const items = [];
 
-  filas.forEach(f => {
-    const sku = f.querySelector(".item-sku").value.trim();
+  filas.forEach((f, idx) => {
+    const partidaNum = idx + 1;
     const desc = f.querySelector(".item-desc").value.trim();
     const cant = parseFloat(f.querySelector(".item-cant").value) || 1;
     const unidad = f.querySelector(".item-unidad").value;
 
     if (desc) {
-      items.push({ sku, desc, cant, unidad });
+      items.push({ 
+        partida: partidaNum, 
+        sku: `Item #${partidaNum}`, 
+        desc, 
+        cant, 
+        unidad 
+      });
     }
   });
 
@@ -1434,9 +1796,9 @@ function p2pAbrirModalCapturaManual(prellenado = {}) {
   estadoP2P.itemsRequerimiento.forEach((it, idx) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><span class="font-monospace small">${it.sku}</span></td>
-      <td><small>${it.desc}</small></td>
-      <td>${it.cant} ${it.unidad}</td>
+      <td class="text-center font-monospace fw-bold text-muted">${it.partida || (idx + 1)}</td>
+      <td><small class="fw-semibold">${it.desc}</small></td>
+      <td class="text-center">${it.cant} ${it.unidad}</td>
       <td>
         <input type="number" class="form-control form-control-sm item-manual-precio text-end" required min="1" step="0.01" placeholder="0.00" value="${1200 + idx * 350}">
       </td>
@@ -1549,10 +1911,10 @@ function p2pGenerarBorradorOC() {
   const tbody = document.getElementById("po-preview-items-tbody");
   tbody.innerHTML = "";
 
-  prov.items.forEach(it => {
+  prov.items.forEach((it, idx) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td class="font-monospace small">${it.sku}</td>
+      <td class="font-monospace fw-bold text-center text-muted small">${it.partida || (idx + 1)}</td>
       <td>${it.desc}</td>
       <td class="text-center">${it.cant}</td>
       <td class="text-center">${it.unidad}</td>

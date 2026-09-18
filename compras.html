@@ -252,24 +252,25 @@
                     <table class="table table-bordered align-middle" id="tabla-items-requerimiento">
                       <thead class="table-light">
                         <tr>
-                          <th style="width: 15%;">SKU / Código</th>
-                          <th style="width: 50%;">Descripción del Material o Servicio</th>
-                          <th style="width: 15%;">Cantidad</th>
-                          <th style="width: 12%;">Unidad</th>
-                          <th style="width: 8%;">Acción</th>
+                          <th style="width: 8%;" class="text-center"># Partida</th>
+                          <th style="width: 58%;">Descripción del Material o Servicio Requerido</th>
+                          <th style="width: 14%;" class="text-center">Cantidad</th>
+                          <th style="width: 14%;">Unidad</th>
+                          <th style="width: 6%;" class="text-center">Acción</th>
                         </tr>
                       </thead>
                       <tbody>
                         <tr>
-                          <td><input type="text" class="form-control form-control-sm item-sku" value="VALV-INOX-01" required></td>
-                          <td><input type="text" class="form-control form-control-sm item-desc" value="Válvula de bola acero inoxidable 2 pulgadas paso completo" required></td>
-                          <td><input type="number" class="form-control form-control-sm item-cant" value="10" min="1" required></td>
+                          <td class="text-center font-monospace fw-bold text-muted item-num">1</td>
+                          <td><input type="text" class="form-control form-control-sm item-desc" value="Válvula de bola acero inoxidable 2 pulgadas paso completo" required placeholder="Ej. Válvula de bola 2 pulgadas..."></td>
+                          <td><input type="number" class="form-control form-control-sm item-cant text-center" value="10" min="1" required></td>
                           <td>
                             <select class="form-select form-select-sm item-unidad">
                               <option value="PZA" selected>PZA</option>
                               <option value="METROS">METROS</option>
                               <option value="KIT">KIT</option>
                               <option value="SRV">SERVICIO</option>
+                              <option value="LOTE">LOTE</option>
                             </select>
                           </td>
                           <td class="text-center">
@@ -277,15 +278,16 @@
                           </td>
                         </tr>
                         <tr>
-                          <td><input type="text" class="form-control form-control-sm item-sku" value="BRIDA-316-02" required></td>
-                          <td><input type="text" class="form-control form-control-sm item-desc" value="Brida ranurada ANSI 150 lbs acero inoxidable 316" required></td>
-                          <td><input type="number" class="form-control form-control-sm item-cant" value="20" min="1" required></td>
+                          <td class="text-center font-monospace fw-bold text-muted item-num">2</td>
+                          <td><input type="text" class="form-control form-control-sm item-desc" value="Brida ranurada ANSI 150 lbs acero inoxidable 316" required placeholder="Ej. Brida ranurada ANSI 150 lbs..."></td>
+                          <td><input type="number" class="form-control form-control-sm item-cant text-center" value="20" min="1" required></td>
                           <td>
                             <select class="form-select form-select-sm item-unidad">
                               <option value="PZA" selected>PZA</option>
                               <option value="METROS">METROS</option>
                               <option value="KIT">KIT</option>
                               <option value="SRV">SERVICIO</option>
+                              <option value="LOTE">LOTE</option>
                             </select>
                           </td>
                           <td class="text-center">
@@ -478,12 +480,12 @@
                   <table class="table table-bordered table-sm align-middle">
                     <thead class="table-light">
                       <tr class="text-secondary small">
-                        <th style="width: 10%;">CÓDIGO</th>
-                        <th style="width: 45%;">DESCRIPCIÓN</th>
+                        <th style="width: 8%;" class="text-center"># PARTIDA</th>
+                        <th style="width: 48%;">DESCRIPCIÓN DEL MATERIAL / SERVICIO</th>
                         <th class="text-center" style="width: 10%;">CANT</th>
                         <th class="text-center" style="width: 10%;">UNIDAD</th>
                         <th class="text-end" style="width: 12%;">P. UNIT</th>
-                        <th class="text-end" style="width: 13%;">TOTAL</th>
+                        <th class="text-end" style="width: 12%;">TOTAL</th>
                       </tr>
                     </thead>
                     <tbody id="po-preview-items-tbody">
@@ -708,10 +710,10 @@
               <table class="table table-bordered table-sm align-middle" id="tabla-captura-items-manual">
                 <thead class="table-light">
                   <tr>
-                    <th>SKU</th>
-                    <th>Descripción</th>
-                    <th style="width: 15%;">Cantidad</th>
-                    <th style="width: 25%;">Precio Unitario Cotizado</th>
+                    <th style="width: 10%;" class="text-center"># Partida</th>
+                    <th style="width: 50%;">Descripción</th>
+                    <th style="width: 15%;" class="text-center">Cantidad</th>
+                    <th style="width: 25%;" class="text-end">Precio Unitario Cotizado</th>
                   </tr>
                 </thead>
                 <tbody id="tbody-captura-items-manual">
