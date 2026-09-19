@@ -259,6 +259,14 @@ function obtenerListadoProcesosActivos() {
 
     const saldoCalculado = Math.max(0, montoAcordado - totalAbonado);
 
+    // Formateo seguro de fecha pactada de pago si viene como Date o String
+    let fechaPactadaVal = row[11] || "";
+    if (fechaPactadaVal instanceof Date) {
+      fechaPactadaVal = Utilities.formatDate(fechaPactadaVal, Session.getScriptTimeZone() || "GMT-6", "yyyy-MM-dd");
+    } else {
+      fechaPactadaVal = fechaPactadaVal.toString().trim();
+    }
+
     procesos.push({
       id: procId,
       proveedor_id: row[1],
@@ -272,6 +280,8 @@ function obtenerListadoProcesosActivos() {
       estatus: row[8],
       tipo_factura: row[9] || "PPD", // PPD (default para pagos parciales) o PUE
       folio_factura_global: row[10] || "",
+      fecha_pactada_pago: fechaPactadaVal,
+      condiciones_pago: row[12] ? row[12].toString().trim() : "",
       total_parcialidades: parcialidades.length,
       reps_pendientes: repsPendientes,
       parcialidades: parcialidades
@@ -850,7 +860,10 @@ function procesarEmisionOrdenCompra(data) {
     urlPDF_OC = archivoOC.getUrl();
   }
 
-  // Registrar en hoja de Procesos
+  const fechaPactadaPago = data.fechaPactadaPago || "";
+  const condicionesPago = data.condicionesPago || "Crédito a 30 días";
+
+  // Registrar en hoja de Procesos (incluyendo Fecha Pactada de Pago y Condiciones)
   sheetProc.appendRow([
     idProceso,
     data.proveedorRfc || "",
@@ -861,28 +874,92 @@ function procesarEmisionOrdenCompra(data) {
     urlPDF_OC || carpetaProceso.getUrl(),
     carpetaProceso.getUrl(),
     "ORDEN_COMPRA_EMITIDA",
-    new Date()
+    new Date(),
+    "PPD", // Tipo factura por defecto
+    fechaPactadaPago, // Columna 12: Fecha pactada de pago
+    condicionesPago // Columna 13: Condiciones de pago acordadas
   ]);
 
   // Si se solicitó envío por correo electrónico al proveedor
   let correoEnviado = false;
   let errorCorreo = null;
-  if (data.proveedorCorreo && blobOC) {
+  let destinatario = (data.proveedorCorreo || "").toString().trim();
+
+  if (destinatario) {
+    const asunto = data.correoAsunto || ("Orden de Compra " + folioOC + " - " + proveedorNombre);
+    const cuerpoPlano = (data.correoCuerpo || "Adjunto encontrará la Orden de Compra formal emitida.") + 
+                        "\n\nFolio OC: " + folioOC + 
+                        "\nID Proceso: " + idProceso + 
+                        "\nProveedor: " + proveedorNombre + 
+                        "\nMonto Total: $" + montoMXN.toLocaleString() + " MXN" +
+                        "\nCondición de Pago: " + condicionesPago +
+                        (fechaPactadaPago ? "\nFecha Pactada de Pago: " + fechaPactadaPago : "") +
+                        "\nFecha de Emisión: " + new Date().toLocaleDateString();
+
+    const cuerpoHtml = `
+      <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; line-height: 1.5;">
+        <h2 style="color: #0d6efd; margin-bottom: 5px;">Orden de Compra Aprobada</h2>
+        <p style="font-size: 14px; margin-top: 0;">Estimado(a) <strong>${proveedorNombre}</strong>,</p>
+        <p style="font-size: 14px;">${(data.correoCuerpo || "Adjunto a este correo encontrará la Orden de Compra oficial correspondiente al proceso adjudicado.").replace(/\n/g, "<br>")}</p>
+        
+        <div style="background-color: #f8f9fa; border-left: 4px solid #0d6efd; padding: 12px; margin: 20px 0; font-size: 14px;">
+          <p style="margin: 4px 0;"><strong>Folio OC:</strong> ${folioOC}</p>
+          <p style="margin: 4px 0;"><strong>ID Proceso:</strong> ${idProceso}</p>
+          <p style="margin: 4px 0;"><strong>Concepto:</strong> ${concepto}</p>
+          <p style="margin: 4px 0;"><strong>Monto Acordado:</strong> $${montoMXN.toLocaleString()} MXN</p>
+          <p style="margin: 4px 0;"><strong>Condición de Pago:</strong> ${condicionesPago}</p>
+          ${fechaPactadaPago ? `<p style="margin: 4px 0; color: #0d6efd;"><strong>Fecha Pactada de Pago:</strong> <strong>${fechaPactadaPago}</strong></p>` : ''}
+          <p style="margin: 4px 0;"><strong>Fecha de Emisión:</strong> ${new Date().toLocaleDateString()}</p>
+        </div>
+
+        <p style="font-size: 13px; color: #6c757d;">Agradecemos confirmar la recepción de este documento y remitir la factura con CFD/XML haciendo referencia al folio de OC adjunto.</p>
+        <hr style="border: none; border-top: 1px solid #dee2e6; margin: 20px 0;">
+        <p style="font-size: 12px; color: #999;">Generado automáticamente por el Sistema de Adquisiciones y Gestión de Proveedores.</p>
+      </div>
+    `;
+
+    const adjuntos = blobOC ? [blobOC] : [];
+
     try {
-      MailApp.sendEmail({
-        to: data.proveedorCorreo,
-        subject: data.correoAsunto || ("Orden de Compra " + folioOC + " Aprobada"),
-        body: (data.correoCuerpo || "Adjunto encontrará la Orden de Compra formal emitida.") + 
-              "\n\nFolio: " + folioOC + 
-              "\nID Proceso: " + idProceso + 
-              "\nFecha: " + new Date().toLocaleDateString(),
-        attachments: [blobOC]
-      });
-      correoEnviado = true;
-    } catch (errMail) {
-      errorCorreo = errMail.toString();
-      Logger.log("Aviso: No se pudo enviar el correo automático: " + errMail);
+      // 1. Intento primario con GmailApp
+      if (typeof GmailApp !== 'undefined') {
+        GmailApp.sendEmail(destinatario, asunto, cuerpoPlano, {
+          htmlBody: cuerpoHtml,
+          attachments: adjuntos,
+          name: "Sistema de Adquisiciones"
+        });
+        correoEnviado = true;
+      } else {
+        // 2. Fallback con MailApp
+        MailApp.sendEmail({
+          to: destinatario,
+          subject: asunto,
+          body: cuerpoPlano,
+          htmlBody: cuerpoHtml,
+          attachments: adjuntos,
+          name: "Sistema de Adquisiciones"
+        });
+        correoEnviado = true;
+      }
+    } catch (errGmail) {
+      Logger.log("Intento con GmailApp falló: " + errGmail + ". Intentando con MailApp...");
+      try {
+        MailApp.sendEmail({
+          to: destinatario,
+          subject: asunto,
+          body: cuerpoPlano,
+          htmlBody: cuerpoHtml,
+          attachments: adjuntos,
+          name: "Sistema de Adquisiciones"
+        });
+        correoEnviado = true;
+      } catch (errMail) {
+        errorCorreo = errMail.toString();
+        Logger.log("Aviso: No se pudo enviar el correo automático: " + errMail);
+      }
     }
+  } else {
+    errorCorreo = "No se especificó correo electrónico para el proveedor.";
   }
 
   return {
@@ -892,8 +969,26 @@ function procesarEmisionOrdenCompra(data) {
     carpetaUrl: carpetaProceso.getUrl(),
     pdfUrl: urlPDF_OC,
     correoEnviado: correoEnviado,
-    errorCorreo: errorCorreo
+    errorCorreo: errorCorreo,
+    destinatario: destinatario
   };
+}
+
+/**
+ * Función de utilidad para probar y autorizar permisos de envío de correo directamente desde Google Apps Script.
+ * Selecciona esta función en Apps Script y dale clic en "Ejecutar" para aceptar los permisos de Gmail/MailApp.
+ */
+function testEnvioCorreo() {
+  const emailPrueba = Session.getActiveUser().getEmail() || "prueba@ejemplo.com";
+  Logger.log("Enviando correo de prueba a: " + emailPrueba);
+  try {
+    GmailApp.sendEmail(emailPrueba, "Prueba de Permisos - Sistema OC", "Hola, si recibes esto, los permisos de correo en Google Apps Script están 100% autorizados.");
+    Logger.log("✅ Correo enviado con éxito mediante GmailApp.");
+  } catch(e) {
+    Logger.log("Fallo con GmailApp: " + e + ". Probando MailApp...");
+    MailApp.sendEmail(emailPrueba, "Prueba de Permisos - Sistema OC", "Hola, prueba con MailApp exitosa.");
+    Logger.log("✅ Correo enviado con éxito mediante MailApp.");
+  }
 }
 
 function respuestaJSON(obj, code) {

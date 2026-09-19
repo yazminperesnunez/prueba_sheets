@@ -1,7 +1,7 @@
 // version_sheets_drive/app.js
 // Conexión directa a Google Sheets y Google Drive vía Google Apps Script
 
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwgATjxdanWGLhtBVVsVUF3tAtyBVwtyufqRsdHPH-7QpydFCGfa93xVCdi5UwicH4/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwx_vVfA6oiiIPs8Msy5KoLSudL-iA4IAT-FcNF2un0lUtxxP-jhKreeTLS1MkcRVV-/exec";
 
 // ==========================================
 // MÓDULO: DASHBOARD (index.html)
@@ -388,7 +388,10 @@ function renderizarTablaDashboardFiltrada() {
         </td>
         <td>
           <div class="fw-semibold text-truncate" style="max-width: 280px;" title="${p.concepto || ''}">${p.concepto || 'Sin concepto'}</div>
-          <small class="text-muted">${saldo > 0 ? `Saldo pend: <span class="text-danger fw-semibold">${formatoMoneda(saldo)}</span>` : '<span class="text-success fw-semibold">Liquidado</span>'}</small>
+          <div class="d-flex flex-wrap gap-2 align-items-center mt-1">
+            <small class="text-muted">${saldo > 0 ? `Saldo: <span class="text-danger fw-semibold">${formatoMoneda(saldo)}</span>` : '<span class="text-success fw-semibold">Liquidado</span>'}</small>
+            ${p.fecha_pactada_pago ? `<small class="badge bg-light text-primary border" title="Fecha pactada de pago / vencimiento">📅 Pago: ${p.fecha_pactada_pago}</small>` : ''}
+          </div>
         </td>
         <td>
           <span class="fw-medium">${p.razon_social || p.proveedor_id || 'Proveedor Adjudicado'}</span>
@@ -500,6 +503,16 @@ async function abrirModalDetalleProceso(idProceso) {
 
   document.getElementById("modal-detalle-saldo").innerText = formatoMoneda(proceso.saldo_pendiente || 0);
   document.getElementById("modal-detalle-badge-estatus").innerHTML = obtenerBadgeEstatusColor(proceso);
+
+  // Fecha pactada de pago y condiciones comerciales
+  const elFechaPactada = document.getElementById("modal-detalle-fecha-pago");
+  if (elFechaPactada) {
+    elFechaPactada.innerText = proceso.fecha_pactada_pago || "No especificada (Contado/Contra entrega)";
+  }
+  const elCondPago = document.getElementById("modal-detalle-cond-pago-badge");
+  if (elCondPago) {
+    elCondPago.innerText = `Condición: ${proceso.condiciones_pago || 'Crédito'}`;
+  }
 
   // Prellenar campos del formulario de pago con el saldo restante
   const inputPagoMonto = document.getElementById("modal-pago-monto");
@@ -1642,28 +1655,12 @@ function p2pEliminarFilaItem(btn) {
 function p2pGuardarRequerimiento(event) {
   event.preventDefault();
 
-  const filas = document.querySelectorAll("#tabla-items-requerimiento tbody tr");
-  const items = [];
+  const solicitante = document.getElementById("req-solicitante").value.trim();
+  const fechaLimite = document.getElementById("req-fecha-limite").value;
+  const concepto = document.getElementById("req-concepto").value.trim();
 
-  filas.forEach((f, idx) => {
-    const partidaNum = idx + 1;
-    const desc = f.querySelector(".item-desc").value.trim();
-    const cant = parseFloat(f.querySelector(".item-cant").value) || 1;
-    const unidad = f.querySelector(".item-unidad").value;
-
-    if (desc) {
-      items.push({
-        partida: partidaNum,
-        sku: `Item #${partidaNum}`,
-        desc,
-        cant,
-        unidad
-      });
-    }
-  });
-
-  if (items.length === 0) {
-    alert("Por favor ingresa al menos un material o servicio a cotizar.");
+  if (!solicitante || !concepto) {
+    alert("Por favor ingresa el solicitante y el propósito de la compra.");
     return;
   }
 
@@ -1673,11 +1670,10 @@ function p2pGuardarRequerimiento(event) {
     if (r.checked) criterio = r.value;
   }
 
-  estadoP2P.solicitante = document.getElementById("req-solicitante").value.trim();
-  estadoP2P.fechaLimite = document.getElementById("req-fecha-limite").value;
-  estadoP2P.concepto = document.getElementById("req-concepto").value.trim();
+  estadoP2P.solicitante = solicitante;
+  estadoP2P.fechaLimite = fechaLimite;
+  estadoP2P.concepto = concepto;
   estadoP2P.criterioOpt = criterio;
-  estadoP2P.itemsRequerimiento = items;
 
   // Actualizar badges en Fase 2
   const f2Proc = document.getElementById("f2-process-id");
@@ -1791,9 +1787,10 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
     tiempoDias = 1;
   }
 
-  // 7. Detectar Condiciones de Pago
+  // 7. Detectar Condiciones de Pago y Fechas Pactadas
   let condicionesPago = "Crédito a 30 días";
-  
+  let fechaPactadaPago = "";
+
   // Normalizar para comparación sin acentos ni signos raros
   const textoSinAcentos = textoNorm.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
@@ -1824,6 +1821,40 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
     condicionesPago = "Crédito comercial";
   }
 
+  // Detectar fecha explícita de pago o vencimiento en la cotización (ej. "pago antes del 25/10/2026", "vence: 2026-10-30")
+  const matchFechaPago = textoSinAcentos.match(/(?:pago\s+(?:pactado|limite|antes\s+del|el|para\s+el)|vencimiento|fecha\s+de\s+pago)\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})/i);
+  if (matchFechaPago && matchFechaPago[1]) {
+    fechaPactadaPago = matchFechaPago[1].trim();
+  }
+
+  // 7.1 VINCULACIÓN CON EL CATÁLOGO DE PROVEEDORES REGISTRADOS EN SHEETS
+  let catalogoMatch = null;
+  if (Array.isArray(estadoP2P.proveedoresCatalogo) && estadoP2P.proveedoresCatalogo.length > 0) {
+    const rfcLimpio = rfc.replace(/[^A-Z0-9]/g, '');
+    catalogoMatch = estadoP2P.proveedoresCatalogo.find(p => {
+      const pRfc = (p.rfc || "").toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const pNombre = (p.razon_social || "").toLowerCase();
+      const provDetectado = nombreProv.toLowerCase();
+      return (pRfc && pRfc.length > 6 && pRfc === rfcLimpio) ||
+        (provDetectado.length > 5 && pNombre.includes(provDetectado)) ||
+        (pNombre.length > 5 && provDetectado.includes(pNombre));
+    });
+  }
+
+  let direccionFiscal = "";
+  let regimenFiscal = "";
+  let carpetaDriveCatalogo = "";
+
+  if (catalogoMatch) {
+    nombreProv = catalogoMatch.razon_social || nombreProv;
+    if (catalogoMatch.rfc) rfc = catalogoMatch.rfc;
+    if (catalogoMatch.correo) correo = catalogoMatch.correo;
+    if (catalogoMatch.telefono) telefono = catalogoMatch.telefono;
+    direccionFiscal = catalogoMatch.direccion || "";
+    regimenFiscal = catalogoMatch.regimen_fiscal || "";
+    carpetaDriveCatalogo = catalogoMatch.carpeta_url || "";
+  }
+
   // 8. Costos por cada ítem del requerimiento
   // Buscamos números monetarios en el texto para estimar precios unitarios
   const numeros = [];
@@ -1837,21 +1868,55 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
   const itemsCotizados = [];
   let subtotal = 0;
 
-  estadoP2P.itemsRequerimiento.forEach((it, idx) => {
-    // Si encontramos números en el PDF asignamos secuencialmente o un estimado proporcional
-    let pUnit = numeros[idx] ? numeros[idx] : (1500 + Math.floor(Math.random() * 800));
-    const totalItem = pUnit * it.cant;
-    subtotal += totalItem;
+  // Si hay requerimientos previos los usamos, o extraemos/generamos las partidas de la propia cotización
+  if (Array.isArray(estadoP2P.itemsRequerimiento) && estadoP2P.itemsRequerimiento.length > 0) {
+    estadoP2P.itemsRequerimiento.forEach((it, idx) => {
+      let pUnit = numeros[idx] ? numeros[idx] : (1500 + Math.floor(Math.random() * 800));
+      const totalItem = pUnit * it.cant;
+      subtotal += totalItem;
 
-    itemsCotizados.push({
-      sku: it.sku,
-      desc: it.desc,
-      cant: it.cant,
-      unidad: it.unidad,
-      precioUnitario: pUnit,
-      total: totalItem
+      itemsCotizados.push({
+        partida: it.partida || (idx + 1),
+        sku: it.sku || `Partida #${idx + 1}`,
+        desc: it.desc,
+        cant: it.cant,
+        unidad: it.unidad,
+        precioUnitario: pUnit,
+        total: totalItem
+      });
     });
-  });
+  } else {
+    // Si el usuario no capturó materiales en Fase 1, extraemos partidas detectadas o generamos las partidas cotizadas
+    if (numeros.length > 0) {
+      numeros.slice(0, 4).forEach((numP, idx) => {
+        const cant = 10 + (idx * 5);
+        const totalItem = numP * cant;
+        subtotal += totalItem;
+        itemsCotizados.push({
+          partida: idx + 1,
+          sku: `Item #${idx + 1}`,
+          desc: `Material o Suministro Cotizado Partida ${idx + 1} (${estadoP2P.concepto || 'Adquisición'})`,
+          cant: cant,
+          unidad: "PZA",
+          precioUnitario: numP,
+          total: totalItem
+        });
+      });
+    } else {
+      // Partida base de la cotización
+      const pUnit = 3500;
+      subtotal = pUnit * 1;
+      itemsCotizados.push({
+        partida: 1,
+        sku: "Partida #1",
+        desc: estadoP2P.concepto || "Suministro y Materiales según Cotización",
+        cant: 1,
+        unidad: "LOTE",
+        precioUnitario: pUnit,
+        total: subtotal
+      });
+    }
+  }
 
   const flete = /env[ií]o gratis|flete incluido/i.test(textoNorm) ? 0 : 450;
   const tasaIva = 0.16;
@@ -1863,12 +1928,18 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
     rfc: rfc,
     correo: correo,
     telefono: telefono,
+    direccion: direccionFiscal,
+    regimenFiscal: regimenFiscal,
+    carpetaDrive: carpetaDriveCatalogo,
+    esDeCatalogo: !!catalogoMatch,
     moneda: moneda,
     tiempoEntregaDias: tiempoDias,
     condicionesPago: condicionesPago,
+    fechaPactadaPago: fechaPactadaPago,
     items: itemsCotizados,
     subtotal: subtotal,
     flete: flete,
+    tasaIva: tasaIva,
     iva: iva,
     total: totalCotizacion
   };
@@ -1878,6 +1949,13 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
  * Carga 3 cotizaciones reales de demostración simulando distintos perfiles de proveedores
  */
 function p2pCargarEjemplosDemostracion() {
+  const partidasBase = (Array.isArray(estadoP2P.itemsRequerimiento) && estadoP2P.itemsRequerimiento.length > 0)
+    ? estadoP2P.itemsRequerimiento
+    : [
+      { partida: 1, sku: "Item #1", desc: "Válvula de bola acero inoxidable 2 pulgadas paso completo", cant: 10, unidad: "PZA" },
+      { partida: 2, sku: "Item #2", desc: "Brida ranurada ANSI 150 lbs acero inoxidable 316", cant: 20, unidad: "PZA" }
+    ];
+
   estadoP2P.cotizaciones = [
     {
       id: "COT-DEMO-1",
@@ -1890,7 +1968,7 @@ function p2pCargarEjemplosDemostracion() {
       condicionesPago: "Crédito 30 días",
       flete: 0,
       tasaIva: 0.16,
-      items: estadoP2P.itemsRequerimiento.map((it, idx) => {
+      items: partidasBase.map((it, idx) => {
         const p = idx === 0 ? 1650 : 820;
         return { ...it, precioUnitario: p, total: p * it.cant };
       })
@@ -1906,7 +1984,7 @@ function p2pCargarEjemplosDemostracion() {
       condicionesPago: "Contado comercial",
       flete: 650,
       tasaIva: 0.16,
-      items: estadoP2P.itemsRequerimiento.map((it, idx) => {
+      items: partidasBase.map((it, idx) => {
         const p = idx === 0 ? 1950 : 980;
         return { ...it, precioUnitario: p, total: p * it.cant };
       })
@@ -1922,7 +2000,7 @@ function p2pCargarEjemplosDemostracion() {
       condicionesPago: "Crédito 30 días",
       flete: 80, // USD
       tasaIva: 0.16,
-      items: estadoP2P.itemsRequerimiento.map((it, idx) => {
+      items: partidasBase.map((it, idx) => {
         const pUSD = idx === 0 ? 98 : 49;
         return { ...it, precioUnitario: pUSD, total: pUSD * it.cant };
       })
@@ -2253,25 +2331,61 @@ function p2pAbrirModalCapturaManual(prellenado = {}) {
     document.getElementById("manual-prov-nombre").value = prellenado.nombreProveedor;
   }
 
-  // Renderizar filas de items según el requerimiento de la Fase 1
   const tbody = document.getElementById("tbody-captura-items-manual");
   tbody.innerHTML = "";
 
-  estadoP2P.itemsRequerimiento.forEach((it, idx) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td class="text-center font-monospace fw-bold text-muted">${it.partida || (idx + 1)}</td>
-      <td><small class="fw-semibold">${it.desc}</small></td>
-      <td class="text-center">${it.cant} ${it.unidad}</td>
-      <td>
-        <input type="number" class="form-control form-control-sm item-manual-precio text-end" required min="1" step="0.01" placeholder="0.00" value="${1200 + idx * 350}">
-      </td>
-    `;
-    tbody.appendChild(tr);
+  // Si hay partidas en requerimiento, precargarlas; si no, crear al menos una partida por defecto
+  const itemsIniciales = (Array.isArray(estadoP2P.itemsRequerimiento) && estadoP2P.itemsRequerimiento.length > 0)
+    ? estadoP2P.itemsRequerimiento
+    : [{ partida: 1, desc: estadoP2P.concepto || "Material / Suministro requerido", cant: 1, unidad: "PZA" }];
+
+  itemsIniciales.forEach((it, idx) => {
+    p2pInsertarFilaCapturaManual(it.desc, it.cant, it.unidad, 1200 + idx * 350);
   });
 
   const modal = new bootstrap.Modal(modalEl);
   modal.show();
+}
+
+function p2pInsertarFilaCapturaManual(desc = "", cant = 1, unidad = "PZA", precio = 0) {
+  const tbody = document.getElementById("tbody-captura-items-manual");
+  if (!tbody) return;
+
+  const numPartida = tbody.querySelectorAll("tr").length + 1;
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td class="text-center font-monospace fw-bold text-muted item-manual-num">${numPartida}</td>
+    <td><input type="text" class="form-control form-control-sm item-manual-desc" value="${desc}" required placeholder="Descripción del producto o servicio"></td>
+    <td><input type="number" class="form-control form-control-sm item-manual-cant text-center" value="${cant}" min="1" step="any" required></td>
+    <td>
+      <select class="form-select form-select-sm item-manual-unidad">
+        <option value="PZA" ${unidad === 'PZA' ? 'selected' : ''}>PZA</option>
+        <option value="METROS" ${unidad === 'METROS' ? 'selected' : ''}>METROS</option>
+        <option value="KIT" ${unidad === 'KIT' ? 'selected' : ''}>KIT</option>
+        <option value="SRV" ${unidad === 'SRV' || unidad === 'SERVICIO' ? 'selected' : ''}>SRV</option>
+        <option value="LOTE" ${unidad === 'LOTE' ? 'selected' : ''}>LOTE</option>
+      </select>
+    </td>
+    <td>
+      <input type="number" class="form-control form-control-sm item-manual-precio text-end" required min="0" step="0.01" value="${precio}">
+    </td>
+    <td class="text-center">
+      <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" onclick="this.closest('tr').remove(); p2pReindexarCapturaManual();">✕</button>
+    </td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function p2pAgregarFilaCapturaManual() {
+  p2pInsertarFilaCapturaManual("", 1, "PZA", 0);
+}
+
+function p2pReindexarCapturaManual() {
+  const filas = document.querySelectorAll("#tbody-captura-items-manual tr");
+  filas.forEach((f, idx) => {
+    const elNum = f.querySelector(".item-manual-num");
+    if (elNum) elNum.innerText = idx + 1;
+  });
 }
 
 function p2pGuardarCotizacionManual(event) {
@@ -2287,20 +2401,24 @@ function p2pGuardarCotizacionManual(event) {
   const flete = parseFloat(document.getElementById("manual-prov-flete").value) || 0;
   const tasaIva = parseFloat(document.getElementById("manual-prov-iva").value) || 0.16;
 
-  const precioInputs = document.querySelectorAll(".item-manual-precio");
+  const filas = document.querySelectorAll("#tbody-captura-items-manual tr");
   const items = [];
   let subtotal = 0;
 
-  estadoP2P.itemsRequerimiento.forEach((it, idx) => {
-    const pUnit = parseFloat(precioInputs[idx].value) || 0;
-    const totalItem = pUnit * it.cant;
+  filas.forEach((f, idx) => {
+    const desc = f.querySelector(".item-manual-desc").value.trim() || `Partida #${idx + 1}`;
+    const cant = parseFloat(f.querySelector(".item-manual-cant").value) || 1;
+    const unidad = f.querySelector(".item-manual-unidad").value;
+    const pUnit = parseFloat(f.querySelector(".item-manual-precio").value) || 0;
+    const totalItem = pUnit * cant;
     subtotal += totalItem;
 
     items.push({
-      sku: it.sku,
-      desc: it.desc,
-      cant: it.cant,
-      unidad: it.unidad,
+      partida: idx + 1,
+      sku: `Partida #${idx + 1}`,
+      desc: desc,
+      cant: cant,
+      unidad: unidad,
       precioUnitario: pUnit,
       total: totalItem
     });
@@ -2309,12 +2427,22 @@ function p2pGuardarCotizacionManual(event) {
   const iva = (subtotal + flete) * tasaIva;
   const total = subtotal + flete + iva;
 
+  // Vincular si pertenece al catálogo registrado
+  let catMatch = null;
+  if (Array.isArray(estadoP2P.proveedoresCatalogo)) {
+    catMatch = estadoP2P.proveedoresCatalogo.find(p => (p.rfc && p.rfc === rfc) || (p.razon_social && p.razon_social.toLowerCase() === nombre.toLowerCase()));
+  }
+
   const nuevaCot = {
     id: "COT-MANUAL-" + Math.floor(100 + Math.random() * 900),
     proveedor: nombre,
     rfc: rfc,
     correo: correo,
     telefono: tel,
+    direccion: catMatch ? (catMatch.direccion || "") : "",
+    regimenFiscal: catMatch ? (catMatch.regimen_fiscal || "") : "",
+    carpetaDrive: catMatch ? (catMatch.carpeta_url || "") : "",
+    esDeCatalogo: !!catMatch,
     moneda: moneda,
     tiempoEntregaDias: dias,
     condicionesPago: pago,
@@ -2353,6 +2481,41 @@ function p2pGenerarBorradorOC() {
   const elPago = document.getElementById("oc-pago-input");
   if (elPago) elPago.value = prov.condicionesPago;
 
+  // Cálculo automático de Fecha Pactada de Pago (si no viene explícita de la cotización)
+  const elFechaPago = document.getElementById("oc-fecha-pago-input");
+  if (elFechaPago) {
+    if (prov.fechaPactadaPago) {
+      elFechaPago.value = prov.fechaPactadaPago;
+    } else {
+      let diasCredito = 30;
+      const mDias = (prov.condicionesPago || "").match(/(\d+)\s*d[ií]as/i);
+      if (mDias && mDias[1]) {
+        diasCredito = parseInt(mDias[1]);
+      } else if (/contado|anticipado/i.test(prov.condicionesPago || "")) {
+        diasCredito = 0;
+      } else if (/15/i.test(prov.condicionesPago || "")) {
+        diasCredito = 15;
+      } else if (/60/i.test(prov.condicionesPago || "")) {
+        diasCredito = 60;
+      } else if (/90/i.test(prov.condicionesPago || "")) {
+        diasCredito = 90;
+      }
+
+      const fEmision = document.getElementById("oc-fecha-input") && document.getElementById("oc-fecha-input").value
+        ? new Date(document.getElementById("oc-fecha-input").value + "T12:00:00")
+        : new Date();
+      fEmision.setDate(fEmision.getDate() + diasCredito);
+      elFechaPago.value = fEmision.toISOString().split('T')[0];
+    }
+  }
+
+  // Flete e IVA de la OC
+  const elFleteInput = document.getElementById("oc-flete-input");
+  if (elFleteInput) elFleteInput.value = (prov.flete || 0).toFixed(2);
+
+  const elIvaSelect = document.getElementById("oc-tasa-iva-select");
+  if (elIvaSelect) elIvaSelect.value = (prov.tasaIva !== undefined ? prov.tasaIva : 0.16).toString();
+
   // Sincronizar inputs de contacto de proveedor (editables en Fase 3)
   const elCorreoProv = document.getElementById("oc-prov-correo-input");
   if (elCorreoProv) elCorreoProv.value = prov.correo || "";
@@ -2360,7 +2523,20 @@ function p2pGenerarBorradorOC() {
   const elTelProv = document.getElementById("oc-prov-tel-input");
   if (elTelProv) elTelProv.value = prov.telefono || "";
 
-  // Llenar previsualización imprimible
+  // Mostrar si está vinculado con el catálogo de proveedores
+  const badgeCatalogo = document.getElementById("oc-badge-catalogo-vinculado");
+  const infoAdicionalProv = document.getElementById("oc-prov-info-adicional");
+  if (prov.esDeCatalogo) {
+    if (badgeCatalogo) badgeCatalogo.style.display = "inline-block";
+    if (infoAdicionalProv) {
+      infoAdicionalProv.innerHTML = `🏢 Régimen: <strong>${prov.regimenFiscal || 'General'}</strong> | Dir: ${prov.direccion || 'Registrada en catálogo'}`;
+    }
+  } else {
+    if (badgeCatalogo) badgeCatalogo.style.display = "none";
+    if (infoAdicionalProv) infoAdicionalProv.innerText = "";
+  }
+
+  // Sincronizar previsualización imprimible
   document.getElementById("po-preview-folio").innerText = estadoP2P.folioOC;
   document.getElementById("po-preview-process-id").innerText = estadoP2P.procesoId;
   document.getElementById("po-preview-fecha").innerText = new Date().toLocaleDateString('es-MX');
@@ -2370,6 +2546,15 @@ function p2pGenerarBorradorOC() {
   document.getElementById("po-preview-prov-contacto").innerText = prov.correo || "N/A";
   document.getElementById("po-preview-prov-tel").innerText = prov.telefono || "N/A";
 
+  const elProvDirWrap = document.getElementById("po-preview-prov-dir-wrap");
+  const elProvDir = document.getElementById("po-preview-prov-dir");
+  if (prov.direccion && elProvDir && elProvDirWrap) {
+    elProvDir.innerText = prov.direccion;
+    elProvDirWrap.style.display = "block";
+  } else if (elProvDirWrap) {
+    elProvDirWrap.style.display = "none";
+  }
+
   document.getElementById("po-preview-tiempo").innerText = `${prov.tiempoEntregaDias} días hábiles`;
   document.getElementById("po-preview-pago").innerText = prov.condicionesPago;
   document.getElementById("po-preview-moneda").innerText = `${prov.moneda} (${prov.moneda === 'USD' ? 'Dólares Americanos' : 'Pesos Mexicanos'})`;
@@ -2378,36 +2563,201 @@ function p2pGenerarBorradorOC() {
   document.getElementById("po-preview-firmante").innerText = sesion ? sesion.nombre : (estadoP2P.solicitante || "Administrador General");
   document.getElementById("po-firma-digital-solic").innerText = `[ FIRMA DIGITAL: ${sesion ? sesion.usuario.toUpperCase() : 'ADMIN'} - ${new Date().toISOString().substring(0, 10)} ]`;
 
-  // Llenar tabla de ítems de la OC
-  const tbody = document.getElementById("po-preview-items-tbody");
-  tbody.innerHTML = "";
+  // Renderizar la tabla de partidas editables en Fase 3
+  p2pRenderizarEditorPartidasOC();
+}
 
-  prov.items.forEach((it, idx) => {
+/**
+ * Renderiza la tabla de partidas editables de la OC y sincroniza el documento imprimible
+ */
+function p2pRenderizarEditorPartidasOC() {
+  const prov = estadoP2P.proveedorSeleccionado;
+  if (!prov) return;
+
+  const tbodyEdit = document.getElementById("tbody-edicion-items-oc");
+  if (!tbodyEdit) return;
+
+  tbodyEdit.innerHTML = "";
+
+  (prov.items || []).forEach((it, idx) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td class="font-monospace fw-bold text-center text-muted small">${it.partida || (idx + 1)}</td>
-      <td>${it.desc}</td>
-      <td class="text-center">${it.cant}</td>
-      <td class="text-center">${it.unidad}</td>
-      <td class="text-end font-monospace">$${it.precioUnitario.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-      <td class="text-end font-monospace fw-semibold">$${it.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+      <td class="text-center font-monospace fw-bold text-muted small part-num">${it.partida || (idx + 1)}</td>
+      <td>
+        <input type="text" class="form-control form-control-sm part-desc" value="${it.desc || ''}" oninput="p2pActualizarFilaItemOC(${idx}, 'desc', this.value)" placeholder="Descripción">
+      </td>
+      <td>
+        <input type="number" class="form-control form-control-sm text-center part-cant" value="${it.cant || 1}" min="1" step="any" oninput="p2pActualizarFilaItemOC(${idx}, 'cant', this.value)">
+      </td>
+      <td>
+        <select class="form-select form-select-sm part-unidad" onchange="p2pActualizarFilaItemOC(${idx}, 'unidad', this.value)">
+          <option value="PZA" ${it.unidad === 'PZA' ? 'selected' : ''}>PZA</option>
+          <option value="METROS" ${it.unidad === 'METROS' ? 'selected' : ''}>METROS</option>
+          <option value="KIT" ${it.unidad === 'KIT' ? 'selected' : ''}>KIT</option>
+          <option value="SRV" ${it.unidad === 'SRV' || it.unidad === 'SERVICIO' ? 'selected' : ''}>SERVICIO</option>
+          <option value="LOTE" ${it.unidad === 'LOTE' ? 'selected' : ''}>LOTE</option>
+        </select>
+      </td>
+      <td>
+        <input type="number" class="form-control form-control-sm text-end part-precio" value="${it.precioUnitario || 0}" min="0" step="0.01" oninput="p2pActualizarFilaItemOC(${idx}, 'precioUnitario', this.value)">
+      </td>
+      <td class="text-end font-monospace fw-semibold small part-total">
+        $${(it.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </td>
+      <td class="text-center">
+        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Eliminar partida" onclick="p2pEliminarItemBorradorOC(${idx})">✕</button>
+      </td>
     `;
-    tbody.appendChild(tr);
+    tbodyEdit.appendChild(tr);
   });
 
-  // Totales
-  const sim = prov.moneda === "USD" ? "USD $" : "$";
-  document.getElementById("po-preview-subtotal").innerText = `${sim}${(prov.subtotal || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
-  document.getElementById("po-preview-flete").innerText = `${sim}${(prov.flete || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
-  document.getElementById("po-preview-iva").innerText = `${sim}${(prov.iva || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
-  document.getElementById("po-preview-total").innerText = `${sim}${(prov.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+  p2pRecalcularTotalesDesdeEdicionOC();
+}
 
-  p2pActualizarPreviewOC(true); // Inicializar y sincronizar Fase 4
+/**
+ * Agrega una nueva partida directamente al borrador de la OC
+ */
+function p2pAgregarItemBorradorOC() {
+  const prov = estadoP2P.proveedorSeleccionado;
+  if (!prov) return;
+
+  if (!Array.isArray(prov.items)) prov.items = [];
+
+  const nuevoNumero = prov.items.length + 1;
+  prov.items.push({
+    partida: nuevoNumero,
+    sku: `Partida #${nuevoNumero}`,
+    desc: "Nuevo insumo o servicio",
+    cant: 1,
+    unidad: "PZA",
+    precioUnitario: 0,
+    total: 0
+  });
+
+  p2pRenderizarEditorPartidasOC();
+}
+
+/**
+ * Elimina una partida del borrador de la OC
+ */
+function p2pEliminarItemBorradorOC(index) {
+  const prov = estadoP2P.proveedorSeleccionado;
+  if (!prov || !Array.isArray(prov.items)) return;
+
+  if (prov.items.length <= 1) {
+    alert("La Orden de Compra debe conservar al menos una partida.");
+    return;
+  }
+
+  prov.items.splice(index, 1);
+
+  // Reindexar partidas
+  prov.items.forEach((it, idx) => {
+    it.partida = idx + 1;
+    it.sku = `Partida #${idx + 1}`;
+  });
+
+  p2pRenderizarEditorPartidasOC();
+}
+
+/**
+ * Actualiza en tiempo real los valores de una partida modificada
+ */
+function p2pActualizarFilaItemOC(index, campo, valor) {
+  const prov = estadoP2P.proveedorSeleccionado;
+  if (!prov || !prov.items || !prov.items[index]) return;
+
+  const it = prov.items[index];
+  if (campo === 'desc') {
+    it.desc = valor;
+  } else if (campo === 'cant') {
+    it.cant = parseFloat(valor) || 0;
+    it.total = it.cant * it.precioUnitario;
+  } else if (campo === 'unidad') {
+    it.unidad = valor;
+  } else if (campo === 'precioUnitario') {
+    it.precioUnitario = parseFloat(valor) || 0;
+    it.total = it.cant * it.precioUnitario;
+  }
+
+  // Actualizar el importe visual de la fila
+  const filas = document.querySelectorAll("#tbody-edicion-items-oc tr");
+  if (filas[index]) {
+    const elTotal = filas[index].querySelector(".part-total");
+    if (elTotal) elTotal.innerText = `$${it.total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  p2pRecalcularTotalesDesdeEdicionOC();
+}
+
+/**
+ * Recalcula subtotales, flete, IVA y total tanto para la edición como para el preview imprimible
+ */
+function p2pRecalcularTotalesDesdeEdicionOC() {
+  const prov = estadoP2P.proveedorSeleccionado;
+  if (!prov) return;
+
+  let subtotal = 0;
+  (prov.items || []).forEach(it => {
+    subtotal += (it.total || 0);
+  });
+
+  const fleteInput = document.getElementById("oc-flete-input");
+  const flete = fleteInput ? (parseFloat(fleteInput.value) || 0) : (prov.flete || 0);
+
+  const ivaSelect = document.getElementById("oc-tasa-iva-select");
+  const tasaIva = ivaSelect ? parseFloat(ivaSelect.value) : (prov.tasaIva !== undefined ? prov.tasaIva : 0.16);
+
+  const iva = (subtotal + flete) * tasaIva;
+  const total = subtotal + flete + iva;
+
+  prov.subtotal = subtotal;
+  prov.flete = flete;
+  prov.tasaIva = tasaIva;
+  prov.iva = iva;
+  prov.total = total;
+
+  // Actualizar etiquetas en la tarjeta de edición
+  const elEditSub = document.getElementById("oc-edit-subtotal-label");
+  if (elEditSub) elEditSub.innerText = `$${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+
+  const elEditIva = document.getElementById("oc-edit-iva-label");
+  if (elEditIva) elEditIva.innerText = `$${iva.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+
+  const elEditTot = document.getElementById("oc-edit-total-label");
+  if (elEditTot) elEditTot.innerText = `$${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+
+  // Actualizar documento imprimible (printable-po-document)
+  const tbodyPreview = document.getElementById("po-preview-items-tbody");
+  if (tbodyPreview) {
+    tbodyPreview.innerHTML = "";
+    (prov.items || []).forEach((it, idx) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="font-monospace fw-bold text-center text-muted small">${it.partida || (idx + 1)}</td>
+        <td>${it.desc}</td>
+        <td class="text-center">${it.cant}</td>
+        <td class="text-center">${it.unidad}</td>
+        <td class="text-end font-monospace">$${it.precioUnitario.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+        <td class="text-end font-monospace fw-semibold">$${it.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+      `;
+      tbodyPreview.appendChild(tr);
+    });
+  }
+
+  const sim = prov.moneda === "USD" ? "USD $" : "$";
+  if (document.getElementById("po-preview-subtotal")) document.getElementById("po-preview-subtotal").innerText = `${sim}${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+  if (document.getElementById("po-preview-flete")) document.getElementById("po-preview-flete").innerText = `${sim}${flete.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+  if (document.getElementById("po-preview-iva")) document.getElementById("po-preview-iva").innerText = `${sim}${iva.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+  if (document.getElementById("po-preview-total")) document.getElementById("po-preview-total").innerText = `${sim}${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+
+  p2pActualizarPreviewOC(false);
 }
 
 function p2pActualizarPreviewOC(esInicial = false) {
   const entrega = document.getElementById("oc-entrega-input") ? document.getElementById("oc-entrega-input").value : "";
   const pago = document.getElementById("oc-pago-input") ? document.getElementById("oc-pago-input").value : "";
+  const fechaPago = document.getElementById("oc-fecha-pago-input") ? document.getElementById("oc-fecha-pago-input").value : "";
   const dir = document.getElementById("oc-direccion-input") ? document.getElementById("oc-direccion-input").value : "";
   const notas = document.getElementById("oc-notas-input") ? document.getElementById("oc-notas-input").value : "";
   const correoProv = document.getElementById("oc-prov-correo-input") ? document.getElementById("oc-prov-correo-input").value.trim() : "";
@@ -2415,6 +2765,9 @@ function p2pActualizarPreviewOC(esInicial = false) {
 
   if (document.getElementById("po-preview-tiempo")) document.getElementById("po-preview-tiempo").innerText = entrega;
   if (document.getElementById("po-preview-pago")) document.getElementById("po-preview-pago").innerText = pago;
+  if (document.getElementById("po-preview-fecha-pago")) {
+    document.getElementById("po-preview-fecha-pago").innerText = fechaPago || "Contra entrega / Inmediato";
+  }
   if (document.getElementById("po-preview-entrega-lugar")) document.getElementById("po-preview-entrega-lugar").innerText = dir;
   if (document.getElementById("po-preview-observaciones")) document.getElementById("po-preview-observaciones").innerText = notas;
 
@@ -2433,6 +2786,9 @@ function p2pActualizarPreviewOC(esInicial = false) {
     if (document.getElementById("f4-summary-proveedor")) document.getElementById("f4-summary-proveedor").innerText = prov.proveedor;
     if (document.getElementById("f4-summary-monto")) document.getElementById("f4-summary-monto").innerText = `${prov.moneda} $${prov.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (Est. ${formatoMoneda(prov.totalNormalizadoMXN)})`;
     if (document.getElementById("f4-summary-tiempo")) document.getElementById("f4-summary-tiempo").innerText = entrega;
+    if (document.getElementById("f4-summary-fecha-pago")) {
+      document.getElementById("f4-summary-fecha-pago").innerText = fechaPago || "Contra entrega";
+    }
 
     // Sincronizar el correo en Fase 4
     const elF4Correo = document.getElementById("f4-correo-destinatario");
@@ -2538,11 +2894,14 @@ async function p2pAprobarYEmitirOrden() {
       proveedorNombre: prov.proveedor,
       proveedorRfc: prov.rfc,
       proveedorCorreo: correoDestino,
+      proveedorTelefono: document.getElementById("oc-prov-tel-input") ? document.getElementById("oc-prov-tel-input").value.trim() : (prov.telefono || ""),
+      proveedorDireccion: prov.direccion || "",
       moneda: prov.moneda,
       montoAcordado: prov.total,
       montoNormalizadoMXN: prov.totalNormalizadoMXN,
-      tiempoEntrega: document.getElementById("oc-entrega-input").value,
-      condicionesPago: document.getElementById("oc-pago-input").value,
+      tiempoEntrega: document.getElementById("oc-entrega-input") ? document.getElementById("oc-entrega-input").value : "",
+      condicionesPago: document.getElementById("oc-pago-input") ? document.getElementById("oc-pago-input").value : "",
+      fechaPactadaPago: document.getElementById("oc-fecha-pago-input") ? document.getElementById("oc-fecha-pago-input").value : (prov.fechaPactadaPago || ""),
       correoAsunto: correoAsunto,
       correoCuerpo: correoCuerpo,
       pdfOCFile: pdfData
@@ -2558,8 +2917,8 @@ async function p2pAprobarYEmitirOrden() {
     let extraInfo = "";
     if (res && res.success) {
       const correoInfo = res.correoEnviado
-        ? `✅ Correo enviado automáticamente a: ${correoDestino}`
-        : `⚠️ Nota de Correo: No se pudo enviar directo desde Google Apps Script (${res.errorCorreo || 'permiso MailApp no autorizado en Apps Script'}). Se abrirá tu cliente de correo como respaldo.`;
+        ? `✅ Correo enviado automáticamente vía Google Apps Script a: ${correoDestino}`
+        : `⚠️ Nota de Envío de Correo: No se envió automáticamente desde Apps Script.\nMotivo: ${res.errorCorreo || 'Falta conceder permisos de envío de correo (Gmail/MailApp) a la Web App en Apps Script'}.\nSe abrirá tu cliente de correo como respaldo.`;
 
       extraInfo = `\n\n- Sincronizado en Google Sheets.\n- Carpeta en Drive: ${res.carpetaUrl || 'Expedientes'}\n- ${correoInfo}`;
 
