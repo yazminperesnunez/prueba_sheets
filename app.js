@@ -1708,12 +1708,31 @@ async function p2pExtraerDatosDePDF(file) {
   try {
     const arrayBuffer = await file.arrayBuffer();
     let textoCompleto = "";
+    let lineasTexto = [];
 
     if (window.pdfjsLib) {
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
+        
+        // Agrupar items de texto por línea o posición Y para mantener estructura
+        let lineaActual = "";
+        let ultimoY = null;
+        textContent.items.forEach(item => {
+          const str = (item.str || "").trim();
+          if (!str) return;
+          const y = item.transform ? Math.round(item.transform[5]) : null;
+          if (ultimoY !== null && y !== null && Math.abs(y - ultimoY) > 4) {
+            if (lineaActual.trim()) lineasTexto.push(lineaActual.trim());
+            lineaActual = str;
+          } else {
+            lineaActual += (lineaActual ? " " : "") + str;
+          }
+          ultimoY = y;
+        });
+        if (lineaActual.trim()) lineasTexto.push(lineaActual.trim());
+
         const textoPagina = textContent.items.map(item => item.str).join(" ");
         textoCompleto += " " + textoPagina;
       }
@@ -1721,20 +1740,21 @@ async function p2pExtraerDatosDePDF(file) {
 
     const archivoBase64 = await archivoABase64(file);
 
-    // Si el texto extraído es muy pobre o nulo (ej. PDF escaneado como imagen plana)
+    // Parser heurístico inteligente sobre el texto y líneas extraídas
+    const datosExtraidos = p2pParsearTextoCotizacion(textoCompleto, file.name, lineasTexto);
+    datosExtraidos.archivoOriginal = archivoBase64;
+    datosExtraidos.id = "COT-" + Math.floor(100 + Math.random() * 900);
+
+    // Si el texto extraído es muy escaso (ej. imagen escaneada plana)
     if (!textoCompleto || textoCompleto.trim().length < 25) {
-      alert(`El archivo ${file.name} parece ser una imagen escaneada sin capa de texto seleccionable.\nSe abrirá la ventana de captura asistida para completar sus datos.`);
+      alert(`El archivo ${file.name} parece ser una imagen escaneada sin capa de texto seleccionable.\nSe abrirá la ventana de captura asistida para que puedas revisar o completar los datos.`);
       p2pAbrirModalCapturaManual({
         nombreProveedor: file.name.replace(/\.pdf$/i, ''),
-        archivoOriginal: archivoBase64
+        archivoOriginal: archivoBase64,
+        cotizacionObj: datosExtraidos
       });
       return;
     }
-
-    // Parser heurístico inteligente sobre el texto extraído
-    const datosExtraidos = p2pParsearTextoCotizacion(textoCompleto, file.name);
-    datosExtraidos.archivoOriginal = archivoBase64;
-    datosExtraidos.id = "COT-" + Math.floor(100 + Math.random() * 900);
 
     estadoP2P.cotizaciones.push(datosExtraidos);
 
@@ -1748,7 +1768,7 @@ async function p2pExtraerDatosDePDF(file) {
 /**
  * Parser de expresiones regulares para identificar campos clave de la cotización
  */
-function p2pParsearTextoCotizacion(texto, nombreArchivo) {
+function p2pParsearTextoCotizacion(texto, nombreArchivo, lineasTexto = []) {
   const textoNorm = texto.replace(/\s+/g, ' ');
 
   // 1. Detectar Nombre de Proveedor (o derivar de nombre de archivo o patrones comunes)
@@ -1796,7 +1816,6 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
 
   // Revisión prioritaria: Parcialidades / Pagos diferidos / Esquemas por hitos
   if (/parcial|parcialidad|parcialidades|ppd|abono|abonos|diferid|mensualidad|mensualidades|plazos|cuotas|ministracion|ministraciones|hito|hitos/i.test(textoSinAcentos)) {
-    // Buscar si indica número de parcialidades (ej. 3 parcialidades, 2 pagos)
     const matchParc = textoSinAcentos.match(/(\d+)\s*(?:parcialidades|parcialidad|pagos|abonos|mensualidades|cuotas)/i);
     if (matchParc && matchParc[1]) {
       condicionesPago = `Parcialidades (${matchParc[1]} pagos)`;
@@ -1804,7 +1823,6 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
       condicionesPago = "Pago en Parcialidades / Diferido (PPD)";
     }
   } else if (/anticipo\s*(?:del)?\s*(\d+)%/i.test(textoSinAcentos)) {
-    // Caso común: 50% anticipo y saldo contra entrega / 30 días (esquema mixto / parcial)
     const matchAnticipo = textoSinAcentos.match(/anticipo\s*(?:del)?\s*(\d+)%/i);
     condicionesPago = `Parcialidad (${matchAnticipo[1]}% anticipo / saldo restante)`;
   } else if (/contado|anticipado|una\s+sola\s+exhibicion|pue\b/i.test(textoSinAcentos) && !/sin\s+anticipo|no\s+contado/i.test(textoSinAcentos)) {
@@ -1821,7 +1839,6 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
     condicionesPago = "Crédito comercial";
   }
 
-  // Detectar fecha explícita de pago o vencimiento en la cotización (ej. "pago antes del 25/10/2026", "vence: 2026-10-30")
   const matchFechaPago = textoSinAcentos.match(/(?:pago\s+(?:pactado|limite|antes\s+del|el|para\s+el)|vencimiento|fecha\s+de\s+pago)\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})/i);
   if (matchFechaPago && matchFechaPago[1]) {
     fechaPactadaPago = matchFechaPago[1].trim();
@@ -1855,20 +1872,33 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
     carpetaDriveCatalogo = catalogoMatch.carpeta_url || "";
   }
 
-  // 8. Costos por cada ítem del requerimiento
-  // Buscamos números monetarios en el texto para estimar precios unitarios
-  const numeros = [];
+  // 8. Costos e identificación de partidas de la propia cotización
   const regexPrecios = /(?:\$|MXN|USD)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2}))/g;
+  const numeros = [];
   let matchP;
   while ((matchP = regexPrecios.exec(textoNorm)) !== null) {
     const num = parseFloat(matchP[1].replace(/,/g, ''));
-    if (num > 50 && num < 100000) numeros.push(num);
+    if (num > 20 && num < 250000) numeros.push(num);
+  }
+
+  // Extraer posibles líneas descriptivas del documento de la cotización
+  const descripcionesEncontradas = [];
+  if (Array.isArray(lineasTexto) && lineasTexto.length > 0) {
+    lineasTexto.forEach(lin => {
+      const lTrim = lin.trim();
+      // Filtrar cabeceras, totales o datos de contacto genéricos
+      if (lTrim.length >= 8 && lTrim.length <= 110 &&
+          !/^(total|subtotal|iva|rfc|telefono|correo|email|fecha|condicion|cotizacion|quote|pagina|atencion|senor|sr|estimado|de:|para:)/i.test(lTrim) &&
+          !/^[0-9\s\$\.,\-\/]+$/.test(lTrim)) {
+        descripcionesEncontradas.push(lTrim);
+      }
+    });
   }
 
   const itemsCotizados = [];
   let subtotal = 0;
 
-  // Si hay requerimientos previos los usamos, o extraemos/generamos las partidas de la propia cotización
+  // Si hay requerimientos previos capturados
   if (Array.isArray(estadoP2P.itemsRequerimiento) && estadoP2P.itemsRequerimiento.length > 0) {
     estadoP2P.itemsRequerimiento.forEach((it, idx) => {
       let pUnit = numeros[idx] ? numeros[idx] : (1500 + Math.floor(Math.random() * 800));
@@ -1880,22 +1910,42 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
         sku: it.sku || `Partida #${idx + 1}`,
         desc: it.desc,
         cant: it.cant,
-        unidad: it.unidad,
+        unidad: it.unidad || "PZA",
         precioUnitario: pUnit,
         total: totalItem
       });
     });
   } else {
-    // Si el usuario no capturó materiales en Fase 1, extraemos partidas detectadas o generamos las partidas cotizadas
-    if (numeros.length > 0) {
-      numeros.slice(0, 4).forEach((numP, idx) => {
-        const cant = 10 + (idx * 5);
+    // Si NO se capturaron materiales en Fase 1: extraer conceptos citados directamente de la cotización
+    if (descripcionesEncontradas.length > 0) {
+      const maxPartidas = Math.min(descripcionesEncontradas.length, 6);
+      for (let i = 0; i < maxPartidas; i++) {
+        const descTexto = descripcionesEncontradas[i];
+        const pUnit = numeros[i] ? numeros[i] : (1200 + (i * 350));
+        const cant = 1;
+        const totalItem = pUnit * cant;
+        subtotal += totalItem;
+
+        itemsCotizados.push({
+          partida: i + 1,
+          sku: `Partida #${i + 1}`,
+          desc: descTexto,
+          cant: cant,
+          unidad: "PZA",
+          precioUnitario: pUnit,
+          total: totalItem
+        });
+      }
+    } else if (numeros.length > 0) {
+      // Fallback si solo se detectaron números sin renglones descriptivos claros
+      numeros.slice(0, 3).forEach((numP, idx) => {
+        const cant = 1;
         const totalItem = numP * cant;
         subtotal += totalItem;
         itemsCotizados.push({
           partida: idx + 1,
-          sku: `Item #${idx + 1}`,
-          desc: `Material o Suministro Cotizado Partida ${idx + 1} (${estadoP2P.concepto || 'Adquisición'})`,
+          sku: `Partida #${idx + 1}`,
+          desc: `Concepto cotizado en documento (${nombreProv} - Ref #${idx + 1})`,
           cant: cant,
           unidad: "PZA",
           precioUnitario: numP,
@@ -1903,13 +1953,13 @@ function p2pParsearTextoCotizacion(texto, nombreArchivo) {
         });
       });
     } else {
-      // Partida base de la cotización
-      const pUnit = 3500;
+      // Partida base si el PDF no traía capa de texto
+      const pUnit = 1800;
       subtotal = pUnit * 1;
       itemsCotizados.push({
         partida: 1,
         sku: "Partida #1",
-        desc: estadoP2P.concepto || "Suministro y Materiales según Cotización",
+        desc: `Suministro de materiales según cotización de ${nombreProv}`,
         cant: 1,
         unidad: "LOTE",
         precioUnitario: pUnit,
@@ -2161,12 +2211,15 @@ function p2pRenderizarCardsCotizaciones() {
           </div>
         </div>
 
-        <div class="mt-auto pt-2 border-top d-flex gap-2">
-          <button type="button" class="btn btn-sm ${esSel ? 'btn-primary' : 'btn-outline-primary'} flex-grow-1 fw-semibold">
-            ${esSel ? '✓ Proveedor Seleccionado' : 'Seleccionar'}
+        <div class="mt-auto pt-2 border-top d-flex gap-1">
+          <button type="button" class="btn btn-sm ${esSel ? 'btn-primary' : 'btn-outline-primary'} flex-grow-1 fw-semibold" onclick="p2pSeleccionarProveedor('${c.id}')">
+            ${esSel ? '✓ Seleccionado' : 'Seleccionar'}
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" title="Revisar o corregir partidas y datos extraídos" onclick="event.stopPropagation(); p2pEditarCotizacionManual('${c.id}')">
+            ✏️
           </button>
           <button type="button" class="btn btn-sm btn-outline-danger" title="Quitar esta cotización" onclick="event.stopPropagation(); p2pEliminarCotizacion('${c.id}')">
-            Quitar
+            ✕
           </button>
         </div>
       </div>
@@ -2321,30 +2374,96 @@ function p2pSeleccionarProveedor(cotId) {
 }
 
 // -------------------------------------------------------------
-// FASE 2 (FALLBACK): CAPTURA ASISTIDA DE COTIZACIÓN MANUAL
+// FASE 2 (FALLBACK): CAPTURA ASISTIDA DE COTIZACIÓN MANUAL / CORRECCIÓN
 // -------------------------------------------------------------
 function p2pAbrirModalCapturaManual(prellenado = {}) {
   const modalEl = document.getElementById("modalCapturaManual");
   if (!modalEl) return;
 
-  if (prellenado.nombreProveedor) {
-    document.getElementById("manual-prov-nombre").value = prellenado.nombreProveedor;
+  const cot = prellenado.cotizacionObj || null;
+  const esEdicion = !!(cot && cot.id);
+
+  // Setear ID y archivo
+  const inputCotId = document.getElementById("manual-cot-id");
+  if (inputCotId) inputCotId.value = cot ? cot.id : "";
+
+  const inputArch = document.getElementById("manual-archivo-base64");
+  if (inputArch) inputArch.value = prellenado.archivoOriginal || (cot ? cot.archivoOriginal : "") || "";
+
+  // Botón submit texto
+  const btnGuardar = document.getElementById("manual-btn-guardar");
+  if (btnGuardar) btnGuardar.innerText = esEdicion ? "Actualizar Cotización en Matriz" : "Guardar Cotización en Matriz";
+
+  // Prellenar campos generales
+  const nombreProv = (cot && cot.proveedor) || prellenado.nombreProveedor || "";
+  document.getElementById("manual-prov-nombre").value = nombreProv;
+  document.getElementById("manual-prov-rfc").value = (cot && cot.rfc) || "";
+  document.getElementById("manual-prov-correo").value = (cot && cot.correo) || "";
+  document.getElementById("manual-prov-tel").value = (cot && cot.telefono) || "";
+  document.getElementById("manual-prov-moneda").value = (cot && cot.moneda) || "MXN";
+  document.getElementById("manual-prov-dias").value = (cot && cot.tiempoEntregaDias) || 3;
+  document.getElementById("manual-prov-pago").value = (cot && cot.condicionesPago) || "Crédito a 30 días";
+  document.getElementById("manual-prov-flete").value = (cot && cot.flete !== undefined) ? cot.flete : 0;
+  document.getElementById("manual-prov-iva").value = (cot && cot.tasaIva !== undefined) ? cot.tasaIva : "0.16";
+
+  // Vincular catálogo automáticamente si coincide
+  if (Array.isArray(estadoP2P.proveedoresCatalogo) && estadoP2P.proveedoresCatalogo.length > 0) {
+    const selCat = document.getElementById("manual-select-catalogo");
+    if (selCat) {
+      selCat.innerHTML = `<option value="">— Capturar proveedor nuevo o seleccionar uno registrado... —</option>` +
+        estadoP2P.proveedoresCatalogo.map(p => `
+          <option value="${p.id_proveedor || p.rfc}">${p.razon_social} (${p.rfc})</option>
+        `).join('');
+
+      if (cot && cot.rfc) {
+        const pMatch = estadoP2P.proveedoresCatalogo.find(p => p.rfc === cot.rfc);
+        if (pMatch) selCat.value = pMatch.id_proveedor || pMatch.rfc;
+      }
+    }
   }
 
+  // Prellenar partidas citadas de la cotización
   const tbody = document.getElementById("tbody-captura-items-manual");
   tbody.innerHTML = "";
 
-  // Si hay partidas en requerimiento, precargarlas; si no, crear al menos una partida por defecto
-  const itemsIniciales = (Array.isArray(estadoP2P.itemsRequerimiento) && estadoP2P.itemsRequerimiento.length > 0)
-    ? estadoP2P.itemsRequerimiento
-    : [{ partida: 1, desc: estadoP2P.concepto || "Material / Suministro requerido", cant: 1, unidad: "PZA" }];
+  let itemsCargar = [];
+  if (cot && Array.isArray(cot.items) && cot.items.length > 0) {
+    itemsCargar = cot.items;
+  } else if (Array.isArray(estadoP2P.itemsRequerimiento) && estadoP2P.itemsRequerimiento.length > 0) {
+    itemsCargar = estadoP2P.itemsRequerimiento;
+  } else {
+    // Si no se capturaron partidas en Fase 1, citar la cotización del proveedor de manera descriptiva
+    itemsCargar = [
+      {
+        partida: 1,
+        desc: nombreProv ? `Materiales y suministros según cotización (${nombreProv})` : (estadoP2P.concepto || "Material / Suministro requerido"),
+        cant: 1,
+        unidad: "PZA",
+        precioUnitario: 1500
+      }
+    ];
+  }
 
-  itemsIniciales.forEach((it, idx) => {
-    p2pInsertarFilaCapturaManual(it.desc, it.cant, it.unidad, 1200 + idx * 350);
+  itemsCargar.forEach((it, idx) => {
+    p2pInsertarFilaCapturaManual(it.desc || `Partida #${idx + 1}`, it.cant || 1, it.unidad || "PZA", it.precioUnitario || 0);
   });
 
   const modal = new bootstrap.Modal(modalEl);
   modal.show();
+}
+
+/**
+ * Abre el modal de captura asistida en modo edición para corregir cualquier dato o partida de una cotización ya cargada
+ */
+function p2pEditarCotizacionManual(cotId) {
+  const cot = estadoP2P.cotizaciones.find(c => c.id === cotId);
+  if (!cot) return;
+
+  p2pAbrirModalCapturaManual({
+    cotizacionObj: cot,
+    nombreProveedor: cot.proveedor,
+    archivoOriginal: cot.archivoOriginal || ""
+  });
 }
 
 function p2pInsertarFilaCapturaManual(desc = "", cant = 1, unidad = "PZA", precio = 0) {
@@ -2355,7 +2474,7 @@ function p2pInsertarFilaCapturaManual(desc = "", cant = 1, unidad = "PZA", preci
   const tr = document.createElement("tr");
   tr.innerHTML = `
     <td class="text-center font-monospace fw-bold text-muted item-manual-num">${numPartida}</td>
-    <td><input type="text" class="form-control form-control-sm item-manual-desc" value="${desc}" required placeholder="Descripción del producto o servicio"></td>
+    <td><input type="text" class="form-control form-control-sm item-manual-desc" value="${desc.replace(/"/g, '&quot;')}" required placeholder="Descripción o cita del producto/servicio en la cotización"></td>
     <td><input type="number" class="form-control form-control-sm item-manual-cant text-center" value="${cant}" min="1" step="any" required></td>
     <td>
       <select class="form-select form-select-sm item-manual-unidad">
@@ -2390,6 +2509,9 @@ function p2pReindexarCapturaManual() {
 
 function p2pGuardarCotizacionManual(event) {
   event.preventDefault();
+
+  const cotIdExistente = document.getElementById("manual-cot-id") ? document.getElementById("manual-cot-id").value.trim() : "";
+  const archivoOriginal = document.getElementById("manual-archivo-base64") ? document.getElementById("manual-archivo-base64").value : "";
 
   const nombre = document.getElementById("manual-prov-nombre").value.trim();
   const rfc = document.getElementById("manual-prov-rfc").value.trim().toUpperCase() || "PROV" + Math.floor(1000 + Math.random() * 9000);
@@ -2433,8 +2555,8 @@ function p2pGuardarCotizacionManual(event) {
     catMatch = estadoP2P.proveedoresCatalogo.find(p => (p.rfc && p.rfc === rfc) || (p.razon_social && p.razon_social.toLowerCase() === nombre.toLowerCase()));
   }
 
-  const nuevaCot = {
-    id: "COT-MANUAL-" + Math.floor(100 + Math.random() * 900),
+  const cotObj = {
+    id: cotIdExistente || ("COT-MANUAL-" + Math.floor(100 + Math.random() * 900)),
     proveedor: nombre,
     rfc: rfc,
     correo: correo,
@@ -2442,6 +2564,7 @@ function p2pGuardarCotizacionManual(event) {
     direccion: catMatch ? (catMatch.direccion || "") : "",
     regimenFiscal: catMatch ? (catMatch.regimen_fiscal || "") : "",
     carpetaDrive: catMatch ? (catMatch.carpeta_url || "") : "",
+    archivoOriginal: archivoOriginal,
     esDeCatalogo: !!catMatch,
     moneda: moneda,
     tiempoEntregaDias: dias,
@@ -2454,7 +2577,23 @@ function p2pGuardarCotizacionManual(event) {
     items: items
   };
 
-  estadoP2P.cotizaciones.push(nuevaCot);
+  if (cotIdExistente) {
+    // Modo Edición: Actualizar cotización existente
+    const idxCot = estadoP2P.cotizaciones.findIndex(c => c.id === cotIdExistente);
+    if (idxCot !== -1) {
+      estadoP2P.cotizaciones[idxCot] = cotObj;
+    } else {
+      estadoP2P.cotizaciones.push(cotObj);
+    }
+    // Si era la que estaba seleccionada, refrescar borrador
+    if (estadoP2P.proveedorSeleccionado && estadoP2P.proveedorSeleccionado.id === cotIdExistente) {
+      estadoP2P.proveedorSeleccionado = cotObj;
+      p2pGenerarBorradorOC();
+    }
+  } else {
+    // Modo Nueva Cotización
+    estadoP2P.cotizaciones.push(cotObj);
+  }
 
   // Cerrar modal
   const modalEl = document.getElementById("modalCapturaManual");
